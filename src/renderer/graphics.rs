@@ -11,7 +11,7 @@ pub struct Graphics {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pub(crate) size: winit::dpi::PhysicalSize<u32>,
-    window: Arc<Window>, // Arc<Window> instead of Window
+    window: Arc<Window>, // Arc<Window> instead of Window for shared references
 }
 
 impl Graphics {
@@ -25,7 +25,7 @@ impl Graphics {
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             #[cfg(not(target_arch = "wasm32"))]
-            backends: wgpu::Backends::VULKAN, // Specify backend
+            backends: wgpu::Backends::VULKAN, // I need to specify the backend to avoid receiving potentially false positives from other backends that are also initialized. I might also ask the user to choose the backend themselves.
             #[cfg(target_arch = "wasm32")]
             backends: wgpu::Backends::GL,
             ..Default::default()
@@ -94,7 +94,6 @@ impl Graphics {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            //println!("{:?}",self.window.inner_size());
         }
     }
 

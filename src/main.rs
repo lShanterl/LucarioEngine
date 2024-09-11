@@ -84,7 +84,7 @@ pub fn run() {
                     Err(wgpu::SurfaceError::OutOfMemory) => control_flow.exit(),
                     Err(e) => eprintln!("{:?}", e),
                 }
-                client.graphics.window().request_redraw();
+                client.graphics.window().request_redraw(); // it's a temporary solution, need to request the redraw for the colors to change
             }
             WindowEvent::CloseRequested => control_flow.exit(),
 
