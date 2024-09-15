@@ -1,101 +1,143 @@
+mod engine;
+mod renderer;
+mod object;
+mod texture;
+mod core;
+
 use std::sync::Arc;
 use winit::{
     event::*,
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
-
-use crate::engine::Engine;
-use crate::renderer::graphics::Graphics;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::prelude::*;
-use wgpu::Device;
 use winit::dpi::PhysicalSize;
-use winit::event_loop::ControlFlow;
-
-mod engine;
-mod renderer;
+use crate::core::wgpu_context::WgpuContext;
+use crate::core::pipeline_manager::PipelineManager;
+use crate::object::Mesh;
+use crate::renderer::renderer::Renderer;
 
 pub struct Client {
-    graphics: Graphics,
-    engine: Engine,
+    wgpu_context: WgpuContext,
+    pipeline_manager: PipelineManager,
+    renderer: Renderer,
 }
 
-impl Client{
-    pub fn new(window: Arc<Window>) -> Client {
-        let graphics = unsafe {Graphics::new(window)};
-        let engine = Engine::new(&graphics);
+impl Client {
+    pub fn new(window: Arc<Window>) -> Self {
+        let wgpu_context = WgpuContext::new(window.clone());
+        let pipeline_manager = PipelineManager::new();
+        let renderer = Renderer::new();
 
-        Self { graphics, engine }
-    }
-}
-
-#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub fn run() {
-    cfg_if::cfg_if! {
-        if #[cfg(target_arch = "wasm32")] {
-            std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-            console_log::init_with_level(log::Level::Warn).expect("Couldn't initialize logger");
-        } else {
-            env_logger::init();
+        Self {
+            wgpu_context,
+            pipeline_manager,
+            renderer,
         }
     }
 
-    let event_loop = EventLoop::new().unwrap();
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
 
-    window.set_title("LucarioProject - Voxel engine");
-
-
-    let mut client = Client::new(window);
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(450, 400));
-
-        use winit::platform::web::WindowExtWebSys;
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| {
-                let dst = doc.get_element_by_id("wasm-example")?;
-                let canvas = web_sys::Element::from(window.canvas()?);
-                dst.append_child(&canvas).ok()?;
-                Some(())
-            })
-            .expect("Couldn't append canvas to document body.");
+    fn create_texture_bind_group_layout(&self) -> wgpu::BindGroupLayout {
+        self.wgpu_context.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        })
     }
-    let mut new_size: Option<PhysicalSize<u32>> = None;
-    event_loop.run(move |event, control_flow| match event {
-        Event::WindowEvent {ref event, window_id }
-        if window_id == client.graphics.window().id() => match event {
-            WindowEvent::Resized(size) => {
-                new_size = Some(*size);
-            }
-            WindowEvent::RedrawRequested => {
-                if let Some(size) = new_size.take() {
-                    client.graphics.resize(size);
-                }
 
-                client.graphics.update();
-                match client.graphics.render() {
-                    Ok(_) => {}
-                    Err(wgpu::SurfaceError::Lost) => client.graphics.resize(client.graphics.size),
-                    Err(wgpu::SurfaceError::OutOfMemory) => control_flow.exit(),
-                    Err(e) => eprintln!("{:?}", e),
-                }
-                client.graphics.window().request_redraw(); // it's a temporary solution, need to request the redraw for the colors to change
-            }
-            WindowEvent::CloseRequested => control_flow.exit(),
+    fn create_diffuse_bind_group(&self, texture: &texture::Texture, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+        self.wgpu_context.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&texture.sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        })
+    }
 
-            _ => {}
-        },
-
-        _ => {}
-    }).expect("Window failed to open");
-
+    fn create_pipeline_layout(&self, bind_group_layout: &wgpu::BindGroupLayout) -> wgpu::PipelineLayout {
+        self.wgpu_context.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Main pipeline layout"),
+            bind_group_layouts: &[bind_group_layout],
+            push_constant_ranges: &[],
+        })
+    }
 }
 
+pub fn run() {
+    
+    let event_loop = EventLoop::new().unwrap_or_else(|e| panic!("Failed to initialize event loop: {}", e));
+    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    window.set_title("LucarioProject - Voxel engine");
+
+    let mut client = Client::new(window.clone());
+    
+    let shader = client.wgpu_context.device.create_shader_module(wgpu::include_wgsl!("./shaders/test_shader.wgsl"));
+    let diffuse_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("C:\\Users\\barto\\Desktop\\sassasa.png"), "temporary.png").unwrap();
+    let texture_bind_group_layout = client.create_texture_bind_group_layout();
+    let diffuse_bind_group = client.create_diffuse_bind_group(&diffuse_texture, &texture_bind_group_layout);
+    
+    let render_pipeline_layout = client.create_pipeline_layout(&texture_bind_group_layout);
+    let main_pipeline_handle = client.pipeline_manager.create_pipeline(&client.wgpu_context.device, &render_pipeline_layout, &shader, &client.wgpu_context.surface_config);
+
+    let meshes = [&Mesh::new(&client.wgpu_context.device, object::VERTICES, object::INDICES)];
+    let mut new_size: Option<PhysicalSize<u32>> = None;
+    
+    event_loop.run(move |event, control_flow| match event {
+        Event::WindowEvent { ref event, window_id }
+        if window_id == client.wgpu_context.get_window().id() =>
+            {
+                match event {
+                    WindowEvent::Resized(size) => new_size = Some(*size),
+                    WindowEvent::RedrawRequested => {
+                        if let Some(size) = new_size.take() {
+                            client.wgpu_context.resize(size);
+                        }
+                        client.wgpu_context.update();
+                        if let Err(e) = client.renderer.render(
+                            &client.wgpu_context,
+                            client.pipeline_manager.get_pipeline(&main_pipeline_handle).unwrap(),
+                            &meshes,
+                            &client.wgpu_context.surface,
+                            &diffuse_bind_group
+                        ) {
+                            match e {
+                                wgpu::SurfaceError::Lost => client.wgpu_context.resize(client.wgpu_context.size),
+                                wgpu::SurfaceError::OutOfMemory => control_flow.exit(),
+                                _ => eprintln!("{:?}", e),
+                            }
+                        }
+                    }
+                    WindowEvent::CloseRequested => control_flow.exit(),
+                    _ => {}
+                }
+            }
+        Event::AboutToWait => client.wgpu_context.get_window().request_redraw(),
+        _ => {}
+    }).expect("Failed to create a window");
+}
 fn main() {
     run();
 }
