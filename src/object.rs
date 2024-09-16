@@ -64,7 +64,6 @@ impl Mesh{
         let num_vertices = vertex_buffer_ar.len() as u32;
         let num_indices = index_buffer_ar.len() as u32;
 
-        println!("{}", num_indices);
 
         Self{
             vertex_buffer,

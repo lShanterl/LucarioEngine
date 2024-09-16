@@ -14,6 +14,16 @@ pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
     0.0, 0.0, 0.5, 0.5,
     0.0, 0.0, 0.0, 1.0,
 );
+/*
+
+|right_x, up_x, forward_x, position_x|
+|right_y, up_y, forward_y, position_y|
+|right_z, up_z, forward_z, position_z|
+|  0.0  ,  0.0,    0.0   ,    0.0    |
+
+ */
+
+
 
 impl Camera {
     pub fn new() -> Self {
