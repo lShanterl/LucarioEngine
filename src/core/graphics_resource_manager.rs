@@ -44,10 +44,13 @@ impl GraphicsResourceManager{
         }
     }
 
-    pub fn create_render_context(&self, pipeline: &PipelineHandle, bind_group: &BindGroupHandle) -> RenderContext {
+    pub fn create_render_context(&self, pipeline: &PipelineHandle, bind_groups: &[&BindGroupHandle]) -> RenderContext {
         RenderContext{
             pipeline: self.pipelines.get(pipeline).expect("The pipeline is missing"),
-            texture_bind_group: self.bind_groups.get(bind_group).expect("The bind group layout is missing"),
+            bind_groups: bind_groups
+                .iter()
+                .map(|handle| self.bind_groups.get(handle).expect("The bind group layout is missing"))
+                .collect(),
         }
     }
 

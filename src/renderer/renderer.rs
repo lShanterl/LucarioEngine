@@ -5,9 +5,10 @@ pub struct Renderer{
 
 }
 
+#[derive(Debug)]
 pub struct RenderContext<'a> {
     pub(crate) pipeline: &'a wgpu::RenderPipeline,
-    pub(crate) texture_bind_group: &'a wgpu::BindGroup,
+    pub(crate) bind_groups: Vec<&'a wgpu::BindGroup>,
 }
 pub struct Scene<'a> {
     pub(crate) meshes: &'a[&'a Mesh],
@@ -58,7 +59,10 @@ impl Renderer{
             });
 
             render_pass.set_pipeline(render_ctx.pipeline);
-            render_pass.set_bind_group(0, &render_ctx.texture_bind_group, &[]);
+
+            for (i, &bind_group) in render_ctx.bind_groups.iter().enumerate() {
+                render_pass.set_bind_group(i as u32, bind_group, &[]);
+            }
 
             for mesh in scene.meshes {
 
