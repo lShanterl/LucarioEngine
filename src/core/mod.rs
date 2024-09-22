@@ -1,2 +1,2 @@
-pub mod wgpu_context;
-pub mod pipeline_manager;
+pub(crate) mod wgpu_context;
+pub(crate) mod graphics_resource_manager;

@@ -1,8 +1,16 @@
-use crate::core::wgpu_context::WgpuContext;
+use crate::core::wgpu_context::{self, WgpuContext};
 use crate::object::Mesh;
 
 pub struct Renderer{
 
+}
+
+pub struct RenderContext<'a> {
+    pub(crate) pipeline: &'a wgpu::RenderPipeline,
+    pub(crate) texture_bind_group: &'a wgpu::BindGroup,
+}
+pub struct Scene<'a> {
+    pub(crate) meshes: &'a[&'a Mesh],
 }
 
 impl Renderer{
@@ -14,13 +22,13 @@ impl Renderer{
     pub fn render(
         &self,
         wgpu_context: &WgpuContext,
-        pipeline: &wgpu::RenderPipeline,
-        meshes: &[&Mesh],
-        surface: &wgpu::Surface,
-        texture_bind_group: &wgpu::BindGroup,
+        render_ctx: &RenderContext,
+        scene: &Scene,
     ) -> Result<(), wgpu::SurfaceError>{
 
-        let output = surface.get_current_texture()?;
+        
+
+        let output = wgpu_context.surface.get_current_texture()?;
 
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -49,10 +57,10 @@ impl Renderer{
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, &texture_bind_group, &[]);
+            render_pass.set_pipeline(render_ctx.pipeline);
+            render_pass.set_bind_group(0, &render_ctx.texture_bind_group, &[]);
 
-            for mesh in meshes {
+            for mesh in scene.meshes {
 
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
