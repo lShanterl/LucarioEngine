@@ -2,7 +2,7 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use winit::{dpi::PhysicalSize, window::Window};
 use wgpu;
-
+use crate::renderer::camera::{Camera, CameraUniform};
 
 pub struct WgpuContext {
     pub device: wgpu::Device,
@@ -11,12 +11,12 @@ pub struct WgpuContext {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub window: Arc<Window>,
     pub size: winit::dpi::PhysicalSize<u32>,
+
+    pub is_cursor_visible: bool,
 }
 
 impl WgpuContext {
-    pub(crate) fn update(&mut self) {
-        //todo!()
-    }
+
     pub fn new(window: Arc<Window>) -> Self {
         let size = window.inner_size();
 
@@ -29,6 +29,7 @@ impl WgpuContext {
             surface_config,
             window,
             size,
+            is_cursor_visible: true,
         }
     }
 

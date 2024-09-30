@@ -4,6 +4,7 @@ mod texture;
 mod core;
 
 use std::sync::Arc;
+use std::time::Duration;
 use renderer::{camera::{self, Camera, CameraUniform}, renderer::{RenderContext, Scene}};
 use wgpu::util::DeviceExt;
 use winit::{
@@ -11,12 +12,54 @@ use winit::{
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::keyboard::PhysicalKey;
 use crate::core::graphics_resource_manager::{BindGroupHandle, BindGroupLayoutHandle, GraphicsResourceManager};
 use crate::core::wgpu_context::WgpuContext;
 use crate::object::Mesh;
 use crate::renderer::renderer::Renderer;
 
+pub struct InputController{
+    left_pressed: bool,
+    right_pressed: bool,
+
+    last_mouse_pos: PhysicalPosition<f64>,
+}
+
+impl InputController{
+    pub fn update(&self, camera: &mut Camera, wgpu_context: &mut WgpuContext, camera_uniform: &mut CameraUniform, camera_buffer: &mut wgpu::Buffer, dt: Duration) {
+        camera.update_camera(dt);
+        camera_uniform.update_view_proj(camera);
+        wgpu_context.queue.write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[*camera_uniform]));
+    }
+    pub fn input(&mut self, event: &WindowEvent, camera: &mut Camera) -> bool {
+        match event {
+            WindowEvent::KeyboardInput {
+                event:
+                KeyEvent {
+                    physical_key: PhysicalKey::Code(key),
+                    state,
+                    ..
+                },
+                ..
+            } => camera.process_keyboard(*key, *state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                camera.process_scroll(delta);
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.left_pressed = *state == ElementState::Pressed;
+                true
+            }
+            WindowEvent::MouseInput { button: MouseButton::Right, state, .. } => {self.right_pressed = *state == ElementState::Pressed; true}
+            _ => false,
+        }
+    }
+}
 
 pub struct Client {
     wgpu_context: WgpuContext,
@@ -30,6 +73,8 @@ pub struct Client {
     camera_uniform: CameraUniform,
     camera_bind_group_handle: BindGroupHandle,
     camera_bind_group_layout_handle: BindGroupLayoutHandle,
+
+    input_controller: InputController,
 }
 
 impl Client {
@@ -38,19 +83,15 @@ impl Client {
         let mut graphics_resource_manager = GraphicsResourceManager::new();
 
         let renderer = Renderer::new();
-        let camera = Camera {
-            // position the camera 1 unit up and 2 units back
-            // +z is out of the screen
-            eye: (0.0, 1.0, 2.0).into(),
-            // have it look at the origin
-            target: (0.0, 0.0, 0.0).into(),
-            // which way is "up"
-            up: cgmath::Vector3::unit_y(),
-            aspect: wgpu_context.get_surface_config().width as f32 / wgpu_context.get_surface_config().height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
+        let camera = Camera::new(
+            wgpu_context.get_surface_config().width as f32,
+            wgpu_context.get_surface_config().height as f32,
+            0.2,
+            1.1,
+            (0.0, 0.0, 0.0),
+            cgmath::Deg(-90.0),
+            cgmath::Deg(-20.0)
+        );
 
         let mut camera_uniform = CameraUniform::new();
         camera_uniform.update_view_proj(&camera);
@@ -82,6 +123,8 @@ impl Client {
                 resource: camera_buffer.as_entire_binding(),
             }
         ]);
+
+        let input_controller = InputController{right_pressed: false, left_pressed: false, last_mouse_pos: PhysicalPosition::new(0.0, 0.0)};
         
         Self {
             wgpu_context,
@@ -93,8 +136,10 @@ impl Client {
             camera_uniform,
             camera_bind_group_handle,
             camera_bind_group_layout_handle,
+            input_controller,
         }
     }
+
 }
 
 pub fn run() {
@@ -180,38 +225,94 @@ pub fn run() {
     
 
     let mut new_size: Option<PhysicalSize<u32>> = None;
+    let mut last_render_time = instant::Instant::now();
+    let (mut dx, mut dy) = (0.0,0.0);
 
-    event_loop.run(move |event, control_flow| match event {
-        Event::WindowEvent { ref event, window_id }
-        if window_id == client.wgpu_context.get_window().id() =>
-            {
-                match event {
-                    WindowEvent::Resized(size) => new_size = Some(*size),
-                    WindowEvent::RedrawRequested => {
-                        if let Some(size) = new_size.take() {
-                            client.wgpu_context.resize(size);
-                            client.camera.resize(size);
-                        }
-                        client.wgpu_context.update();
-                        if let Err(e) = client.renderer.render(
-                            &client.wgpu_context,
-                            &main_render_ctx,
-                            &scene,
-                        ) {
-                            match e {
-                                wgpu::SurfaceError::Lost => client.wgpu_context.resize(client.wgpu_context.size),
-                                wgpu::SurfaceError::OutOfMemory => control_flow.exit(),
-                                _ => eprintln!("{:?}", e),
-                            }
-                        }
-                    }
-                    WindowEvent::CloseRequested => control_flow.exit(),
-                    _ => {}
+    event_loop.run(move |event, control_flow| {
+        let mut new_size: Option<winit::dpi::PhysicalSize<u32>> = None;
+
+        match event {
+            // Handle device events like mouse motion
+            Event::DeviceEvent {
+                event: DeviceEvent::MouseMotion { delta },
+                ..
+            } => {
+                if client.input_controller.left_pressed {
+                    //(dx, dy) = delta;
+                    client.camera.process_mouse(delta.0, delta.1);
+                    window.set_cursor_position(PhysicalPosition::new(client.wgpu_context.window.inner_size().width as f64 / 2.0, client.wgpu_context.window.inner_size().height as f64 / 2.0)).unwrap();
+                }
+                else if client.input_controller.right_pressed{
+                    client.wgpu_context.is_cursor_visible = !client.wgpu_context.is_cursor_visible;
+                    client.wgpu_context.window.set_cursor_visible(client.wgpu_context.is_cursor_visible);
                 }
             }
-        Event::AboutToWait => client.wgpu_context.get_window().request_redraw(),
-        _ => {}
+
+            // Handle window events
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == client.wgpu_context.get_window().id() => {
+                if !client.input_controller.input(event, &mut client.camera) {
+                    match event {
+                        WindowEvent::Resized(size) => {
+                            new_size = Some(*size);
+                        }
+                        WindowEvent::RedrawRequested => {
+                            if let Some(size) = new_size.take() {
+                                client.wgpu_context.resize(size);
+                                client.camera.resize(size);
+                            }
+
+                            let now = instant::Instant::now();
+                            let dt = now - last_render_time;
+                            last_render_time = now;
+
+                            println!("{:?}",dt);
+
+                            //client.camera.process_mouse(dx,dy);
+                            //(dx,dy) = (0.0, 0.0);
+
+                            client.input_controller.update(
+                                &mut client.camera,
+                                &mut client.wgpu_context,
+                                &mut client.camera_uniform,
+                                &mut client.camera_buffer,
+                                dt,
+                            );
+
+                            // Attempt to render
+                            if let Err(e) = client.renderer.render(
+                                &client.wgpu_context,
+                                &main_render_ctx,
+                                &scene,
+                            ) {
+                                match e {
+                                    wgpu::SurfaceError::Lost => {
+                                        client.wgpu_context.resize(client.wgpu_context.size);
+                                    }
+                                    wgpu::SurfaceError::OutOfMemory => control_flow.exit(),
+                                    _ => eprintln!("{:?}", e),
+                                }
+                            }
+                        }
+                        WindowEvent::CloseRequested => {
+                            control_flow.exit();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // Force redraw when about to wait
+            Event::AboutToWait => {
+                client.wgpu_context.get_window().request_redraw();
+            }
+
+            _ => {}
+        }
     }).expect("Failed to create a window");
+
 }
 fn main() {
     run();
