@@ -13,53 +13,13 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::keyboard::PhysicalKey;
+use winit::window::CursorGrabMode;
 use crate::core::graphics_resource_manager::{BindGroupHandle, BindGroupLayoutHandle, GraphicsResourceManager};
+use crate::core::input::Input;
 use crate::core::wgpu_context::WgpuContext;
 use crate::object::Mesh;
 use crate::renderer::renderer::Renderer;
-
-pub struct InputController{
-    left_pressed: bool,
-    right_pressed: bool,
-
-    last_mouse_pos: PhysicalPosition<f64>,
-}
-
-impl InputController{
-    pub fn update(&self, camera: &mut Camera, wgpu_context: &mut WgpuContext, camera_uniform: &mut CameraUniform, camera_buffer: &mut wgpu::Buffer, dt: Duration) {
-        camera.update_camera(dt);
-        camera_uniform.update_view_proj(camera);
-        wgpu_context.queue.write_buffer(camera_buffer, 0, bytemuck::cast_slice(&[*camera_uniform]));
-    }
-    pub fn input(&mut self, event: &WindowEvent, camera: &mut Camera) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                event:
-                KeyEvent {
-                    physical_key: PhysicalKey::Code(key),
-                    state,
-                    ..
-                },
-                ..
-            } => camera.process_keyboard(*key, *state),
-            WindowEvent::MouseWheel { delta, .. } => {
-                camera.process_scroll(delta);
-                true
-            }
-            WindowEvent::MouseInput {
-                button: MouseButton::Left,
-                state,
-                ..
-            } => {
-                self.left_pressed = *state == ElementState::Pressed;
-                true
-            }
-            WindowEvent::MouseInput { button: MouseButton::Right, state, .. } => {self.right_pressed = *state == ElementState::Pressed; true}
-            _ => false,
-        }
-    }
-}
+use crate::texture::Texture;
 
 pub struct Client {
     wgpu_context: WgpuContext,
@@ -74,7 +34,10 @@ pub struct Client {
     camera_bind_group_handle: BindGroupHandle,
     camera_bind_group_layout_handle: BindGroupLayoutHandle,
 
-    input_controller: InputController,
+    input: Input,
+    is_mouse_focused: bool,
+
+    depth_texture: Texture
 }
 
 impl Client {
@@ -86,11 +49,11 @@ impl Client {
         let camera = Camera::new(
             wgpu_context.get_surface_config().width as f32,
             wgpu_context.get_surface_config().height as f32,
-            0.2,
-            1.1,
+            1.2,
+            0.001,
             (0.0, 0.0, 0.0),
-            cgmath::Deg(-90.0),
-            cgmath::Deg(-20.0)
+            0.0,
+            0.0
         );
 
         let mut camera_uniform = CameraUniform::new();
@@ -124,8 +87,9 @@ impl Client {
             }
         ]);
 
-        let input_controller = InputController{right_pressed: false, left_pressed: false, last_mouse_pos: PhysicalPosition::new(0.0, 0.0)};
-        
+        let depth_texture = texture::Texture::create_depth_texture(&wgpu_context.device, &wgpu_context.surface_config, "depth_texture");
+
+
         Self {
             wgpu_context,
             graphics_resource_manager,
@@ -136,13 +100,18 @@ impl Client {
             camera_uniform,
             camera_bind_group_handle,
             camera_bind_group_layout_handle,
-            input_controller,
+            //input_controller,
+            input: Input::new(),
+            is_mouse_focused: false,
+            depth_texture
         }
     }
 
 }
 
 pub fn run() {
+
+    std::env::set_var("RUST_BACKTRACE", "1");
 
     let event_loop = EventLoop::new().unwrap_or_else(|e| panic!("Failed to initialize event loop: {}", e));
     let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
@@ -151,7 +120,7 @@ pub fn run() {
     let mut client = Client::new(window.clone());
 
     let shader = client.wgpu_context.device.create_shader_module(wgpu::include_wgsl!("./shaders/test_shader.wgsl"));
-
+    
     let diff_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("./assets/textures/grid_02.png"), "temporary.png").unwrap();
     let texture_bind_group_layout = client.graphics_resource_manager.create_bind_group_layout(
         &client.wgpu_context.device, 
@@ -204,11 +173,14 @@ pub fn run() {
         &client.wgpu_context.device,
         render_pipeline_layout_handle,
         &shader,
-        &client.wgpu_context.surface_config
+        &client.wgpu_context.surface_config,
+        &client.depth_texture
     );
 
     let meshes = [
-        &Mesh::new(&client.wgpu_context.device, object::VERTICES, object::INDICES)
+        //&Mesh::new(&client.wgpu_context.device, object::VERTICES, object::INDICES),
+        &Mesh::new(&client.wgpu_context.device, object::CUBE_VERTICES, object::CUBE_INDICES),
+        &Mesh::new(&client.wgpu_context.device, object::CONE_VERTICES, object::CONE_INDICES),
     ];
     
     let scene = Scene{
@@ -226,34 +198,26 @@ pub fn run() {
 
     let mut new_size: Option<PhysicalSize<u32>> = None;
     let mut last_render_time = instant::Instant::now();
-    let (mut dx, mut dy) = (0.0,0.0);
+    let mut print_framerate = false;
+    
 
     event_loop.run(move |event, control_flow| {
         let mut new_size: Option<winit::dpi::PhysicalSize<u32>> = None;
 
         match event {
             // Handle device events like mouse motion
-            Event::DeviceEvent {
-                event: DeviceEvent::MouseMotion { delta },
-                ..
-            } => {
-                if client.input_controller.left_pressed {
-                    //(dx, dy) = delta;
-                    client.camera.process_mouse(delta.0, delta.1);
-                    window.set_cursor_position(PhysicalPosition::new(client.wgpu_context.window.inner_size().width as f64 / 2.0, client.wgpu_context.window.inner_size().height as f64 / 2.0)).unwrap();
-                }
-                else if client.input_controller.right_pressed{
-                    client.wgpu_context.is_cursor_visible = !client.wgpu_context.is_cursor_visible;
-                    client.wgpu_context.window.set_cursor_visible(client.wgpu_context.is_cursor_visible);
-                }
+
+            Event::DeviceEvent {ref event, .. } => {
+                client.input.handle_device_event(event);
             }
 
             // Handle window events
+
             Event::WindowEvent {
                 ref event,
                 window_id,
             } if window_id == client.wgpu_context.get_window().id() => {
-                if !client.input_controller.input(event, &mut client.camera) {
+                if !client.input.handle_window_event(event) {
                     match event {
                         WindowEvent::Resized(size) => {
                             new_size = Some(*size);
@@ -268,24 +232,44 @@ pub fn run() {
                             let dt = now - last_render_time;
                             last_render_time = now;
 
-                            println!("{:?}",dt);
+                            client.input.handle_window_event(event);
 
-                            //client.camera.process_mouse(dx,dy);
-                            //(dx,dy) = (0.0, 0.0);
+                            client.camera.update_camera(&client.input,dt, client.is_mouse_focused);
+                            client.camera_uniform.update_view_proj(&client.camera);
+                            client.wgpu_context.queue.write_buffer(&client.camera_buffer, 0, bytemuck::cast_slice(&[client.camera_uniform]));
 
-                            client.input_controller.update(
-                                &mut client.camera,
-                                &mut client.wgpu_context,
-                                &mut client.camera_uniform,
-                                &mut client.camera_buffer,
-                                dt,
-                            );
+                            if client.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyJ) {
+                                println!("{:?}", client.camera.position);
+                            }
+                            if(client.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyF)) {
+                                print_framerate = !print_framerate;
+                            }
+                            if(client.input.is_mouse_button_just_pressed(MouseButton::Left)) {
+                                client.is_mouse_focused = !client.is_mouse_focused;
+
+                                if client.is_mouse_focused {
+                                    client.wgpu_context.window.set_cursor_grab(CursorGrabMode::Confined)
+                                        .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
+                                        .unwrap();
+                                    client.wgpu_context.window.set_cursor_visible(false);
+                                } else {
+                                    client.wgpu_context.window.set_cursor_grab(CursorGrabMode::None).unwrap();
+                                    client.wgpu_context.window.set_cursor_visible(true);
+                                }
+                            }
+                            
+                            
+                            if print_framerate {
+                                println!("{:?}fps", 1000.0f32 / dt.as_millis() as f32);
+                            }
+
 
                             // Attempt to render
                             if let Err(e) = client.renderer.render(
                                 &client.wgpu_context,
                                 &main_render_ctx,
                                 &scene,
+                                &client.depth_texture,
                             ) {
                                 match e {
                                     wgpu::SurfaceError::Lost => {
@@ -295,6 +279,8 @@ pub fn run() {
                                     _ => eprintln!("{:?}", e),
                                 }
                             }
+
+                            client.input.reset();
                         }
                         WindowEvent::CloseRequested => {
                             control_flow.exit();

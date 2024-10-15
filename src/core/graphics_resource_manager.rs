@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use wgpu::BindGroupEntry;
 use crate::object::Vertex;
 use crate::renderer::renderer::RenderContext;
+use crate::texture;
+use crate::texture::Texture;
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct BindGroupHandle(u32);
@@ -13,6 +15,20 @@ pub struct PipelineHandle(u32);
 pub struct PipelineLayoutHandle(u32);
 
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum CompareFunction {
+    Undefined = 0,
+    Never = 1,
+    Less = 2,
+    Equal = 3,
+    LessEqual = 4,
+    Greater = 5,
+    NotEqual = 6,
+    GreaterEqual = 7,
+    Always = 8,
+}
 
 pub struct GraphicsResourceManager{
     bind_groups: HashMap<BindGroupHandle, wgpu::BindGroup>,
@@ -85,6 +101,7 @@ impl GraphicsResourceManager{
         layout_handle: PipelineLayoutHandle,
         shader: &wgpu::ShaderModule, // change it into handle,
         surface_config: &wgpu::SurfaceConfiguration,
+        depth_format: &Texture,
 
     ) -> PipelineHandle {
 
@@ -123,7 +140,13 @@ impl GraphicsResourceManager{
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: texture::Texture::DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
@@ -131,6 +154,7 @@ impl GraphicsResourceManager{
             },
             multiview: None,
             cache: None,
+
         });
 
 

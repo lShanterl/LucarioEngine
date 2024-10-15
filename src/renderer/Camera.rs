@@ -3,7 +3,10 @@ use winit::event::*;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use instant::Duration;
 use std::f32::consts::FRAC_PI_2;
+use wgpu::util::DeviceExt;
 use winit::keyboard::KeyCode;
+use crate::core::input::Input;
+use crate::core::wgpu_context::WgpuContext;
 
 pub struct Camera {
     pub eye: cgmath::Point3<f32>,
@@ -14,9 +17,10 @@ pub struct Camera {
     pub znear: f32,
     pub zfar: f32,
 
+
     pub position: Point3<f32>,
-    yaw: Rad<f32>,
-    pitch: Rad<f32>,
+    yaw: f32,
+    pitch: f32,
 
 
     amount_left: f32,
@@ -35,6 +39,9 @@ pub struct Camera {
     sensitivity: f32,
 
     projection: Projection,
+}
+
+impl Camera {
 }
 
 pub struct Projection {
@@ -101,7 +108,6 @@ pub struct CameraUniform {
 
 impl CameraUniform {
     pub fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
             view_proj: cgmath::Matrix4::identity().into(),
             view_position: [0.0; 4],
@@ -117,10 +123,8 @@ impl CameraUniform {
 impl Camera {
     pub fn new<
         V: Into<Point3<f32>>,
-        Y: Into<Rad<f32>>,
-        P: Into<Rad<f32>>
     >
-    (width: f32, height: f32, speed: f32, sensitivity: f32, pos: V, yaw: Y, pitch: P ) -> Self {
+    (width: f32, height: f32, speed: f32, sensitivity: f32, pos: V, yaw: f32, pitch: f32) -> Self {
         let eye = cgmath::Point3::new(0.0, 1.0, 2.0);
         let target = cgmath::Point3::new(0.0, 0.0, 0.0);
         let up = cgmath::Vector3::unit_y();
@@ -129,8 +133,6 @@ impl Camera {
         let znear = 0.1;
         let zfar = 100.0;
 
-
-        
 
         Self{
             eye,
@@ -142,8 +144,9 @@ impl Camera {
             zfar,
 
             position: pos.into(),
-            yaw: yaw.into(),
-            pitch: pitch.into(),
+            yaw,
+            pitch,
+
             
             amount_left: 0.0,
             amount_right: 0.0,
@@ -171,16 +174,12 @@ impl Camera {
     }
 
     pub fn calc_matrix(&self) -> Matrix4<f32> {
-        let (sin_pitch, cos_pitch) = self.pitch.0.sin_cos();
-        let (sin_yaw, cos_yaw) = self.yaw.0.sin_cos();
+        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
+        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
         Matrix4::look_to_rh(
             self.position,
-            Vector3::new(
-                cos_pitch * cos_yaw,
-                sin_pitch,
-                cos_pitch * sin_yaw
-            ).normalize(),
+            Vector3::new(cos_pitch * cos_yaw, sin_pitch, cos_pitch * sin_yaw).normalize(),
             Vector3::unit_y(),
         )
     }
@@ -198,92 +197,48 @@ impl Camera {
         self.build_view_projection_matrix();
 
     }
-
-    pub fn process_mouse(&mut self, mouse_dx: f64, mouse_dy: f64) {
-        
-        self.rotate_horizontal = mouse_dx as f32;
-        self.rotate_vertical = mouse_dy as f32;
-    }
-
-    pub fn process_scroll(&mut self, delta: &MouseScrollDelta) {
-        self.scroll = -match delta {
-            // I'm assuming a line is about 100 pixels
-            MouseScrollDelta::LineDelta(_, scroll) => scroll * 100.0,
-            MouseScrollDelta::PixelDelta(PhysicalPosition { y: scroll, .. }) => *scroll as f32,
-        };
-    }
-
-    pub(crate) fn process_keyboard(&mut self, key: KeyCode, state: ElementState) -> bool {
-        let amount = if state == ElementState::Pressed { 1.0 } else { 0.0 };
-
-        match key {
-            winit::keyboard::KeyCode::KeyW => {
-                self.amount_forward = amount;
-                true
-            }
-            winit::keyboard::KeyCode::KeyS => {
-                self.amount_backward = amount;
-                true
-            }
-            winit::keyboard::KeyCode::KeyA => {
-                self.amount_left = amount;
-                true
-            }
-            winit::keyboard::KeyCode::KeyD => {
-                self.amount_right = amount;
-                true
-            }
-            winit::keyboard::KeyCode::Space => {
-                self.amount_up = amount;
-                true
-            }
-            winit::keyboard::KeyCode::ShiftLeft => {
-                self.amount_down = amount;
-                true
-            }
-            _ => false,
-        }
-    }
-
-
-    pub(crate) fn update_camera(&mut self, dt: Duration) {
+    
+    pub(crate) fn update_camera(&mut self, input: &Input, dt: Duration, is_mouse_focused: bool) {
         let dt = dt.as_secs_f32();
 
-        // Move forward/backward and left/right
-        let (yaw_sin, yaw_cos) = self.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
-        self.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
-        self.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
 
-        // Move in/out (aka. "zoom")
-        // Note: this isn't an actual zoom. The camera's position
-        // changes when zooming. I've added this to make it easier
-        // to get closer to an object you want to focus on.
-        let (pitch_sin, pitch_cos) = self.pitch.0.sin_cos();
-        let scrollward = Vector3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
-        self.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
-        self.scroll = 0.0;
+        let input_forward = Self::get_input_dir(&input, KeyCode::KeyW, KeyCode::KeyS);
+        let input_right = Self::get_input_dir(&input, KeyCode::KeyD, KeyCode::KeyA);
+        let input_up = Self::get_input_dir(&input, KeyCode::Space, KeyCode::ControlLeft);
 
-        // Move up/down. Since we don't use roll, we can just
-        // modify the y coordinate directly.
-        self.position.y += (self.amount_up - self.amount_down) * self.speed * dt;
+        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
 
-        // Rotate
-        self.yaw += Rad(self.rotate_horizontal) * self.sensitivity * dt;
-        self.pitch += Rad(-self.rotate_vertical) * self.sensitivity * dt;
 
-        // If process_mouse isn't called every frame, these values
-        // will not get set to zero, and the camera will rotate
-        // when moving in a non-cardinal direction.
-        self.rotate_horizontal = 0.0;
-        self.rotate_vertical = 0.0;
+        let dir_forward = Vector3::new(cos_yaw, 0.0, sin_yaw);
+        let dir_right = Vector3::new(-sin_yaw, 0.0, cos_yaw);
+        const DIR_UP: Vector3<f32> = Vector3::new(0.0, 1.0, 0.0);
 
-        // Keep the camera's angle from going too high/low.
-        if self.pitch < -Rad(SAFE_FRAC_PI_2) {
-            self.pitch = -Rad(SAFE_FRAC_PI_2);
-        } else if self.pitch > Rad(SAFE_FRAC_PI_2) {
-            self.pitch = Rad(SAFE_FRAC_PI_2);
+        let speed = self.speed * dt;
+
+        self.position += dir_forward * input_forward * speed;
+        self.position += dir_right * input_right * speed;
+        self.position += DIR_UP * input_up * speed * 2.0;
+
+        let temporary_lr = Self::get_input_dir(input, KeyCode::ArrowRight, KeyCode::ArrowLeft);
+        let temporary_td = Self::get_input_dir(input, KeyCode::ArrowDown, KeyCode::ArrowUp);
+
+        // rotation
+        if is_mouse_focused{
+
+            //let rotate_amount = input.mouse_delta_f32();
+
+            let rotate_amount = Vector2::new(temporary_lr * 20.0, temporary_td * 20.0);
+
+            self.yaw -= self.sensitivity * -rotate_amount.x;
+            self.pitch -= self.sensitivity * rotate_amount.y;
+    
+            self.pitch = self
+                .pitch
+                .clamp(-SAFE_FRAC_PI_2, SAFE_FRAC_PI_2);
         }
+    }
+
+    fn get_input_dir(input: &Input, key_positive: KeyCode, key_negative: KeyCode) -> f32 {
+        (input.is_key_down(key_positive) as i32 - input.is_key_down(key_negative) as i32) as f32
     }
 }

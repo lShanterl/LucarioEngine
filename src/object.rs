@@ -22,17 +22,66 @@ impl Vertex {
 }
 
 pub const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords: [0.4131759, 0.00759614], }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords: [0.0048659444, 0.43041354], }, // B
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], tex_coords:   [0.4131759, 0.00759614], }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], tex_coords:  [0.0048659444, 0.43041354], }, // B
     Vertex { position: [-0.21918549, -0.44939706, 0.0], tex_coords: [0.28081453, 0.949397], }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_coords: [0.85967, 0.84732914], }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_coords: [0.9414737, 0.2652641], }, // E
+    Vertex { position: [0.35966998, -0.3473291, 0.0], tex_coords:   [0.85967, 0.84732914], }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], tex_coords:    [0.9414737, 0.2652641], }, // E
 ];
 
 pub const INDICES: &[u16] = &[
     0, 1, 4,
     1, 2, 4,
     2, 3, 4,
+];
+
+pub const CUBE_VERTICES: &[Vertex] = &[
+    // Front face
+    Vertex { position: [-1.0, -1.0,  1.0], tex_coords: [0.0, 0.0], }, // 0
+    Vertex { position: [ 1.0, -1.0,  1.0], tex_coords: [1.0, 0.0], }, // 1
+    Vertex { position: [ 1.0,  1.0,  1.0], tex_coords: [1.0, 1.0], }, // 2
+    Vertex { position: [-1.0,  1.0,  1.0], tex_coords: [0.0, 1.0], }, // 3
+    // Back face
+    Vertex { position: [-1.0, -1.0, -1.0], tex_coords: [1.0, 0.0], }, // 4
+    Vertex { position: [ 1.0, -1.0, -1.0], tex_coords: [0.0, 0.0], }, // 5
+    Vertex { position: [ 1.0,  1.0, -1.0], tex_coords: [0.0, 1.0], }, // 6
+    Vertex { position: [-1.0,  1.0, -1.0], tex_coords: [1.0, 1.0], }, // 7
+];
+
+
+pub const CUBE_INDICES: &[u16] = &[
+    // front face
+    0, 1, 2, 2, 3, 0,
+    // top face
+    3, 2, 6, 6, 7, 3,
+    // back face
+    7, 6, 5, 5, 4, 7,
+    // left face
+    4, 0, 3, 3, 7, 4,
+    // bottom face
+    0, 4, 5, 5, 1, 0, // Back to front now.
+    // right face
+    1, 5, 6, 6, 2, 1
+];
+
+pub const CONE_VERTICES: &[Vertex] = &[
+    // Base vertices
+    Vertex { position: [0.0, -0.5, -1.0], tex_coords: [0.25, 0.49] }, // 0
+    Vertex { position: [1.0, -0.5, 0.0], tex_coords: [0.25, 0.25] }, // 1
+    Vertex { position: [0.0, -0.5, 1.0], tex_coords: [0.49, 0.25] }, // 2
+    Vertex { position: [-1.0, -0.5, 0.0], tex_coords: [0.25, 0.01] }, // 3
+    // Apex of the cone
+    Vertex { position: [0.0, 0.5, 0.0], tex_coords: [0.75, 0.49] }, // 4
+];
+
+
+pub const CONE_INDICES: &[u16] = &[
+    4, 1, 0,
+    4, 2, 1,
+    4, 3, 2,
+    4, 0, 3,
+    2, 1, 0,
+    0, 3, 2,
 ];
 
 pub(crate) struct Mesh{

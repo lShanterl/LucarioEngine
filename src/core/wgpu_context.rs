@@ -52,7 +52,7 @@ impl WgpuContext {
 
 fn init_wgpu(window: Arc<Window>) -> (wgpu::Device, wgpu::Queue, wgpu::Surface<'static>, wgpu::SurfaceConfiguration){
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor{
-        backends: wgpu::Backends::DX12, // need to specify the backend explicitly as of https://github.com/gfx-rs/wgpu/issues/3959
+        backends: wgpu::Backends::VULKAN, // need to specify the backend explicitly as of https://github.com/gfx-rs/wgpu/issues/3959
         ..Default::default()
     });
     let surface = instance.create_surface(window.clone()).expect("Failed to create a surface");
