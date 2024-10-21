@@ -2,6 +2,7 @@ mod renderer;
 mod object;
 mod texture;
 mod core;
+mod utils;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -221,11 +222,14 @@ pub fn run() {
                     match event {
                         WindowEvent::Resized(size) => {
                             new_size = Some(*size);
+                            client.camera.resize(*size);
+                            client.camera_uniform.update_view_proj(&client.camera);
                         }
                         WindowEvent::RedrawRequested => {
                             if let Some(size) = new_size.take() {
                                 client.wgpu_context.resize(size);
-                                client.camera.resize(size);
+
+
                             }
 
                             let now = instant::Instant::now();
@@ -241,10 +245,10 @@ pub fn run() {
                             if client.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyJ) {
                                 println!("{:?}", client.camera.position);
                             }
-                            if(client.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyF)) {
+                            if client.input.is_key_just_pressed(winit::keyboard::KeyCode::KeyF) {
                                 print_framerate = !print_framerate;
                             }
-                            if(client.input.is_mouse_button_just_pressed(MouseButton::Left)) {
+                            if client.input.is_mouse_button_just_pressed(MouseButton::Left) {
                                 client.is_mouse_focused = !client.is_mouse_focused;
 
                                 if client.is_mouse_focused {

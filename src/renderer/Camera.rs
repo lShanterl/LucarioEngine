@@ -184,18 +184,9 @@ impl Camera {
         )
     }
 
-    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        OPENGL_TO_WGPU_MATRIX * proj * view
-    }
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         self.aspect = size.width as f32 / size.height as f32;
-        self.build_view_projection_matrix();
-
+        self.projection.resize(size.width, size.height);
     }
     
     pub(crate) fn update_camera(&mut self, input: &Input, dt: Duration, is_mouse_focused: bool) {
