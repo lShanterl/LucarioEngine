@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use wgpu::BindGroupEntry;
 use crate::object::Vertex;
-use crate::renderer::renderer::RenderContext;
+use crate::renderer::renderer::{InstanceRaw, RenderContext};
 use crate::texture;
 use crate::texture::Texture;
 
@@ -102,38 +102,48 @@ impl GraphicsResourceManager{
         shader: &wgpu::ShaderModule, // change it into handle,
         surface_config: &wgpu::SurfaceConfiguration,
         depth_format: &Texture,
+        is_instanced: bool,
 
     ) -> PipelineHandle {
 
         let layout = self.pipeline_layouts.get(&layout_handle).expect("PipelineLayoutHandle not found in pipeline_layouts");
 
+        let mut buffers = vec![Vertex::desc()];
+        let buffer = &[Vertex::desc()];
+
+        let msaa_samples = 4;
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(&format!("Pipeline {}", self.next_pipeline_id)),
-            layout: Some(layout),
+            
+            label: Some("Render Pipeline"),
+            layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
+                buffers: &[Vertex::desc(), InstanceRaw::desc()],
                 compilation_options: Default::default(),
-                buffers: &[
-                    Vertex::desc()
-                ],
             },
+            
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent::REPLACE,
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode: Some(wgpu::Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
+                // Setting this to anything other than Fill requires Features::POLYGON_MODE_LINE
+                // or Features::POLYGON_MODE_POINT
                 polygon_mode: wgpu::PolygonMode::Fill,
                 // Requires Features::DEPTH_CLIP_CONTROL
                 unclipped_depth: false,
@@ -152,10 +162,13 @@ impl GraphicsResourceManager{
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
+            // If the pipeline will be used with a multiview render pass, this
+            // indicates how many array layers the attachments will have.
             multiview: None,
+            // Useful for optimizing shader compilation on Android
             cache: None,
-
         });
+
 
 
         let handle = PipelineHandle(self.next_pipeline_id);

@@ -4,9 +4,11 @@ mod texture;
 mod core;
 mod utils;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use renderer::{camera::{self, Camera, CameraUniform}, renderer::{RenderContext, Scene}};
+use image::{GrayImage, Luma};
+use renderer::{camera::{self, Camera, CameraUniform}, renderer::{RenderContext}};
 use wgpu::util::DeviceExt;
 use winit::{
     event::*,
@@ -17,10 +19,12 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::window::CursorGrabMode;
 use crate::core::graphics_resource_manager::{BindGroupHandle, BindGroupLayoutHandle, GraphicsResourceManager};
 use crate::core::input::Input;
+use crate::core::scene_manager::SceneManager;
 use crate::core::wgpu_context::WgpuContext;
 use crate::object::Mesh;
-use crate::renderer::renderer::Renderer;
+use crate::renderer::renderer::{Renderer, State};
 use crate::texture::Texture;
+use crate::utils::perlin_noise::perlin_noise;
 
 pub struct Client {
     wgpu_context: WgpuContext,
@@ -34,6 +38,7 @@ pub struct Client {
     camera_uniform: CameraUniform,
     camera_bind_group_handle: BindGroupHandle,
     camera_bind_group_layout_handle: BindGroupLayoutHandle,
+    
 
     input: Input,
     is_mouse_focused: bool,
@@ -50,7 +55,7 @@ impl Client {
         let camera = Camera::new(
             wgpu_context.get_surface_config().width as f32,
             wgpu_context.get_surface_config().height as f32,
-            1.2,
+            150.1,
             0.001,
             (0.0, 0.0, 0.0),
             0.0,
@@ -112,17 +117,41 @@ impl Client {
 
 pub fn run() {
 
+    let width = 255;
+    let height = 255;
+    let scale = 0.1;
+    let seed = 42;
+
+    let mut img: GrayImage = GrayImage::new(width, height);
+
+    for y in 0..height {
+        for x in 0..width {
+            let noise_value = perlin_noise::perlin(x as f32 * scale, y as f32 * scale);
+            let color_value = (noise_value * 255.0).clamp(0.0, 255.0) as u8; // Convert to grayscale
+            img.put_pixel(x, y, Luma([color_value]));
+        }
+    }
+
+    
+    let output_path = Path::new("perlin_noise.png");
+    img.save(output_path).expect("Failed to save image");
+    println!("Image saved to {:?}", output_path);
+
     std::env::set_var("RUST_BACKTRACE", "1");
 
     let event_loop = EventLoop::new().unwrap_or_else(|e| panic!("Failed to initialize event loop: {}", e));
-    let window = Arc::new(WindowBuilder::new().build(&event_loop).unwrap());
+    let window = Arc::new(WindowBuilder::new().with_inner_size(PhysicalSize::new(800, 600)).build(&event_loop).unwrap());
     window.set_title("LucarioProject - Voxel engine");
+
 
     let mut client = Client::new(window.clone());
 
+    let textures = Texture::create_texture_atlas(&client.wgpu_context.device, &client.wgpu_context.queue, &[include_bytes!("./assets/textures/obama.png"),include_bytes!("./assets/textures/grid_01.png"), include_bytes!("./assets/textures/grid_02.png"), include_bytes!("./assets/textures/obama.png")], "egg_label");
+
+
     let shader = client.wgpu_context.device.create_shader_module(wgpu::include_wgsl!("./shaders/test_shader.wgsl"));
     
-    let diff_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("./assets/textures/grid_02.png"), "temporary.png").unwrap();
+    let diff_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("./assets/textures/grid_01.png"), "temporary.png").unwrap();
     let texture_bind_group_layout = client.graphics_resource_manager.create_bind_group_layout(
         &client.wgpu_context.device, 
         &[
@@ -175,18 +204,32 @@ pub fn run() {
         render_pipeline_layout_handle,
         &shader,
         &client.wgpu_context.surface_config,
-        &client.depth_texture
+        &client.depth_texture,
+        true
     );
 
-    let meshes = [
-        //&Mesh::new(&client.wgpu_context.device, object::VERTICES, object::INDICES),
-        &Mesh::new(&client.wgpu_context.device, object::CUBE_VERTICES, object::CUBE_INDICES),
-        &Mesh::new(&client.wgpu_context.device, object::CONE_VERTICES, object::CONE_INDICES),
-    ];
+    // let meshes = [
+    //     //&Mesh::new(&client.wgpu_context.device, object::VERTICES, object::INDICES),
+    //     &Mesh::new(&client.wgpu_context.device, object::CUBE_VERTICES, object::CUBE_INDICES),
+    //     &Mesh::new(&client.wgpu_context.device, object::CONE_VERTICES, object::CONE_INDICES),
+    // ];
     
-    let scene = Scene{
-        meshes: &meshes
-    };
+    let world = [
+        &Mesh::new_cube_at(&client.wgpu_context.device, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]),
+        &Mesh::new_cube_at(&client.wgpu_context.device, [1.0, 1.0, 1.0], [1.0, 0.0, 0.0]),
+    ];
+
+    let mut scene_manager = SceneManager::new();
+
+    let cube = scene_manager.add_mesh(Mesh::new_cube_at(&client.wgpu_context.device, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]));
+    scene_manager.add_mesh(Mesh::new_cube_at(&client.wgpu_context.device, [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]));
+
+    let state = State::new(&client.wgpu_context.device);
+
+
+    // let scene = Scene{
+    //     meshes: &world
+    // }; //TODO: optimize it, create a scene manager, add mesh delete mesh etc
 
     let main_render_ctx = client.graphics_resource_manager.create_render_context(
         &render_pipeline_handle,
@@ -203,16 +246,14 @@ pub fn run() {
     
 
     event_loop.run(move |event, control_flow| {
-        let mut new_size: Option<winit::dpi::PhysicalSize<u32>> = None;
+        let mut new_size: Option<PhysicalSize<u32>> = None;
 
         match event {
-            // Handle device events like mouse motion
 
             Event::DeviceEvent {ref event, .. } => {
                 client.input.handle_device_event(event);
             }
-
-            // Handle window events
+            
 
             Event::WindowEvent {
                 ref event,
@@ -224,12 +265,14 @@ pub fn run() {
                             new_size = Some(*size);
                             client.camera.resize(*size);
                             client.camera_uniform.update_view_proj(&client.camera);
+                            client.wgpu_context.resize(*size);
+
+                            client.depth_texture = texture::Texture::create_depth_texture(&client.wgpu_context.device, &client.wgpu_context.surface_config, "depth_texture");
+                            //println!("{:?}", &client.wgpu_context.surface_config);
+
                         }
                         WindowEvent::RedrawRequested => {
                             if let Some(size) = new_size.take() {
-                                client.wgpu_context.resize(size);
-
-
                             }
 
                             let now = instant::Instant::now();
@@ -269,12 +312,9 @@ pub fn run() {
 
 
                             // Attempt to render
-                            if let Err(e) = client.renderer.render(
-                                &client.wgpu_context,
-                                &main_render_ctx,
-                                &scene,
-                                &client.depth_texture,
-                            ) {
+                            if let Err(e) = //client.renderer.render(&client.wgpu_context, &main_render_ctx, &scene_manager, &client.depth_texture, )
+                                client.renderer.render_instanced(&client.wgpu_context, &main_render_ctx, &state, &scene_manager.get_mesh(cube), &client.depth_texture)
+                            {
                                 match e {
                                     wgpu::SurfaceError::Lost => {
                                         client.wgpu_context.resize(client.wgpu_context.size);
@@ -304,6 +344,7 @@ pub fn run() {
     }).expect("Failed to create a window");
 
 }
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     run();
 }

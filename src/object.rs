@@ -1,4 +1,5 @@
 use wgpu::util::DeviceExt;
+use crate::texture;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -84,12 +85,33 @@ pub const CONE_INDICES: &[u16] = &[
     0, 3, 2,
 ];
 
+pub struct Material {
+    pub name: String,
+    pub diffuse_texture: texture::Texture,
+    pub bind_group: wgpu::BindGroup,
+}
+
+// create an enum of materials
+// create a hashmap of materials
+
+pub enum BlockTypes{
+    Grass,
+    Dirt,
+    Stone,
+    Wood,
+    Leaves,
+    Water,
+}
+
 pub(crate) struct Mesh{
     pub(crate) vertex_buffer: wgpu::Buffer,
     pub(crate) index_buffer: wgpu::Buffer,
     pub(crate) num_vertices: u32,
     pub(crate) num_indices: u32,
+
+    //pub(crate) material: Material,
 }
+
 
 impl Mesh{
     pub fn new(device: &wgpu::Device, vertex_buffer_ar: &[Vertex], index_buffer_ar: &[u16]) -> Self{
@@ -121,9 +143,38 @@ impl Mesh{
             num_indices,
         }
     }
+    
+    pub fn new_cube_at(device: &wgpu::Device, position: [f32; 3], color: [f32; 3]) -> Self{
+        let vertex_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(CUBE_VERTICES),
+                usage: wgpu::BufferUsages::VERTEX,
+            }
+        );
+
+        let index_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Index Buffer"),
+                contents: bytemuck::cast_slice(CUBE_INDICES),
+                usage: wgpu::BufferUsages::INDEX,
+            }
+        );
+
+        let num_vertices = CUBE_VERTICES.len() as u32;
+        let num_indices = CUBE_INDICES.len() as u32;
+
+        Self{
+            vertex_buffer,
+            index_buffer,
+            num_vertices,
+            num_indices,
+        }
+    }
 }
 
 pub(crate) struct CubeMesh{
     pub(crate) position: [f32; 3],
     pub(crate) color: [f32; 3],
+    
 }

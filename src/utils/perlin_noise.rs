@@ -1,25 +1,69 @@
 
-mod perlin_noise {
-    use rand::Rng;
-    use cgmath::{Vector2, dot, InnerSpace};
+pub mod perlin_noise {
+    use cgmath::num_traits::clamp;
+    use cgmath::{dot, InnerSpace, Vector2};
+    use rand::rngs::StdRng;
+    //use web_sys::js_sys::Math::{cos, sin}; use these on wasm target
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    use std::f32::consts::PI;
+    use std::mem;
 
     //https://en.wikipedia.org/wiki/Perlin_noise
 
+    // Weight w should be in range [0.0, 1.0]
     fn interpolate(a0: f32, a1: f32, w: f32) -> f32 {
-        (1.0 - w) * a0 + w * a1
+        let smooth_w = smoothstep(0.0, 1.0, w);
+        
+        (1.0 - smooth_w) * a0 + smooth_w * a1
+        
+        //(a1 - a0) * ((w * (w * 6.0 - 15.0) + 10.0) * w * w * w) + a0
+    }
+
+    //https://en.wikipedia.org/wiki/Smoothstep
+    fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32{
+        let lower_limit = 0.0f32;
+        let upper_limit = 1.0f32;
+
+        let x = clamp((x - edge0) / (edge1 - edge0), lower_limit, upper_limit);
+
+        x * x * x * (x * (6.0f32 * x - 15.0f32) + 10.0f32) // 6x^5 - 15x^4 + 10x^3
+    }
+
+    fn random_gradient(ix: i32, iy: i32) -> Vector2<f32> {
+        let w: u32 = 8 * mem::size_of::<u32>() as u32;
+        let s: u32 = w / 2u32;
+        let (mut a, mut b): (u32, u32) = (ix as u32, iy as u32);
+
+        a = a.wrapping_mul(3284157443);
+        b ^= a << s | a >> w - s;
+        b = b.wrapping_mul(1911520717);
+        a ^= b << s | b >> w - s;
+        a = a.wrapping_mul(2048419325);
+
+        let random: f64 = (a as f32 * (PI / !(!0u32 >> 1) as f32)) as f64;
+
+        Vector2::new(random.cos() as f32, random.sin() as f32)
     }
 
     fn dot_grid_gradient(ix: i32, iy: i32, x: f32, y: f32) -> f32 {
+        let ix = ix as usize % 256;
+        let iy = iy as usize % 256;
+
+        let random = PERMUTATION[(ix + PERMUTATION[iy] as usize) % 256];
+        let random = random as f32 / 255.0;
+
+        let gradient = random_gradient(ix as i32, iy as i32);
+
         let dx = x - ix as f32;
         let dy = y - iy as f32;
-        let random = PERMUTATION[(ix + PERMUTATION[iy as usize as usize] as i32) as usize as usize];
-        let random = random as f32 / 255.0;
-        let gradient = Vector2::new(dx, dy);
-        let gradient = gradient.normalize();
-        dot(gradient, Vector2::new(x, y)) * random
+
+        let input_vector = Vector2::new(dx, dy);
+
+        dot(gradient, input_vector) * random
     }
 
-    fn perlin(x: f32, y: f32) -> f32{
+    pub fn perlin(x: f32, y: f32) -> f32{
         let x0 = x.floor() as i32;
         let x1 = x0 + 1;
         let y0 = y.floor() as i32;
@@ -36,7 +80,7 @@ mod perlin_noise {
         let n1 = dot_grid_gradient(x1, y1, x, y);
         let ix1 = interpolate(n0, n1, sx);
 
-        interpolate(ix0, ix1, sy) // final noise value, will return a value between -1 and 1, in order to convert it to 0-1, multiply by 0.5 and add 0.5
+        interpolate(ix0, ix1, sy)  * 0.5 + 0.5// final noise value, will return a value between -1 and 1, in order to convert it to 0-1, multiply by 0.5 and add 0.5
     }
 
     const PERMUTATION: [u8; 256] = [
@@ -57,5 +101,13 @@ mod perlin_noise {
         184,  84, 204, 176, 115, 121,  50,  45, 127,   4, 150, 254, 138, 236, 205,  93,
         222, 114,  67,  29,  24,  72, 243, 141, 128, 195,  78,  66, 215,  61, 156, 180
     ];
+
+    fn shuffle_permutation(seed: u64) -> [u8; 256] {
+        let mut perm = PERMUTATION.clone();
+        let mut rng = StdRng::seed_from_u64(seed);
+        perm.shuffle(&mut rng);
+
+        perm
+    }
 
 }
