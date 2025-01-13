@@ -34,8 +34,10 @@ fn vs_main(
         instance.model_matrix_2,
         instance.model_matrix_3,
     );
+
     var out: VertexOutput;
     out.tex_coords = model.tex_coords;
+
     out.clip_position = camera.view_proj * model_matrix * vec4<f32>(model.position, 0.25);
     return out;
 }

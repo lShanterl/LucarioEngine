@@ -47,21 +47,38 @@ pub const CUBE_VERTICES: &[Vertex] = &[
     Vertex { position: [ 1.0, -1.0, -1.0], tex_coords: [0.0, 0.0], }, // 5
     Vertex { position: [ 1.0,  1.0, -1.0], tex_coords: [0.0, 1.0], }, // 6
     Vertex { position: [-1.0,  1.0, -1.0], tex_coords: [1.0, 1.0], }, // 7
+
+    // Top face (unique UVs)
+    Vertex { position: [-1.0,  1.0, -1.0], tex_coords: [0.0, 0.0] }, // 8
+    Vertex { position: [ 1.0,  1.0, -1.0], tex_coords: [1.0, 0.0] }, // 9
+    Vertex { position: [ 1.0,  1.0,  1.0], tex_coords: [1.0, 1.0] }, // 10
+    Vertex { position: [-1.0,  1.0,  1.0], tex_coords: [0.0, 1.0] }, // 11
+
+    // Bottom face (unique UVs)
+    Vertex { position: [-1.0, -1.0, -1.0], tex_coords: [0.0, 0.0] }, // 12
+    Vertex { position: [ 1.0, -1.0, -1.0], tex_coords: [1.0, 0.0] }, // 13
+    Vertex { position: [ 1.0, -1.0,  1.0], tex_coords: [1.0, 1.0] }, // 14
+    Vertex { position: [-1.0, -1.0,  1.0], tex_coords: [0.0, 1.0] }, // 15
 ];
 
 
 pub const CUBE_INDICES: &[u16] = &[
-    // front face
+    // Front face
     0, 1, 2, 2, 3, 0,
-    // top face
-    3, 2, 6, 6, 7, 3,
-    // back face
+
+    // Top face (updated indices)
+    11, 10, 9, 9, 8, 11,
+
+    // Back face
     7, 6, 5, 5, 4, 7,
-    // left face
+
+    // Left face
     4, 0, 3, 3, 7, 4,
-    // bottom face
-    0, 4, 5, 5, 1, 0, // Back to front now.
-    // right face
+
+    // Bottom face (updated indices)
+    12, 13, 14, 14, 15, 12,
+
+    // Right face
     1, 5, 6, 6, 2, 1
 ];
 
@@ -84,7 +101,7 @@ pub const CONE_INDICES: &[u16] = &[
     2, 1, 0,
     0, 3, 2,
 ];
-
+#[derive(Debug)]
 pub struct Material {
     pub name: String,
     pub diffuse_texture: texture::Texture,
@@ -103,6 +120,7 @@ pub enum BlockTypes{
     Water,
 }
 
+#[derive(Debug)]
 pub(crate) struct Mesh{
     pub(crate) vertex_buffer: wgpu::Buffer,
     pub(crate) index_buffer: wgpu::Buffer,

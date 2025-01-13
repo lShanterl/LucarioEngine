@@ -9,11 +9,10 @@ use crate::texture::Texture;
 pub struct BindGroupHandle(u32);
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct BindGroupLayoutHandle(u32);
-#[derive(Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct PipelineHandle(u32);
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub struct PipelineLayoutHandle(u32);
-
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -60,16 +59,29 @@ impl GraphicsResourceManager{
         }
     }
 
-    pub fn create_render_context(&self, pipeline: &PipelineHandle, bind_groups: &[&BindGroupHandle]) -> RenderContext {
-        RenderContext{
-            pipeline: self.pipelines.get(pipeline).expect("The pipeline is missing"),
-            bind_groups: bind_groups
-                .iter()
-                .map(|handle| self.bind_groups.get(handle).expect("The bind group layout is missing"))
-                .collect(),
-        }
+    pub fn get_bind_group(&self, handle: BindGroupHandle) -> &wgpu::BindGroup {
+        self.bind_groups.get(&handle).expect("BindGroupHandle not found in bind_groups")
+    }
+    pub fn get_bind_group_layout(&self, handle: BindGroupLayoutHandle) -> &wgpu::BindGroupLayout {
+        self.bind_group_layouts.get(&handle).expect("BindGroupLayoutHandle not found in bind_group_layouts")
+    }
+    pub fn get_pipeline(&self, handle: PipelineHandle) -> &wgpu::RenderPipeline {
+        self.pipelines.get(&handle).expect("PipelineHandle not found in pipelines")
+    }
+    pub fn get_pipeline_layout(&self, handle: PipelineLayoutHandle) -> &wgpu::PipelineLayout {
+        self.pipeline_layouts.get(&handle).expect("PipelineLayoutHandle not found in pipeline_layouts")
     }
 
+    pub fn create_render_context(
+        &self,
+        pipeline: &PipelineHandle,
+        bind_groups: &[&BindGroupHandle],
+    ) -> RenderContext {
+        RenderContext {
+            pipeline: *pipeline,
+            bind_groups: bind_groups.iter().copied().cloned().collect(),
+        }
+    }
 
     pub fn create_pipeline_layout(
         &mut self,
@@ -101,7 +113,7 @@ impl GraphicsResourceManager{
         layout_handle: PipelineLayoutHandle,
         shader: &wgpu::ShaderModule, // change it into handle,
         surface_config: &wgpu::SurfaceConfiguration,
-        depth_format: &Texture,
+        depth_format: Option<&Texture>,
         is_instanced: bool,
 
     ) -> PipelineHandle {
@@ -115,7 +127,7 @@ impl GraphicsResourceManager{
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             
-            label: Some("Render Pipeline"),
+            label: Some(&*("Render Pipeline ".to_owned() + &self.next_pipeline_id.to_string())),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -150,7 +162,7 @@ impl GraphicsResourceManager{
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
+            depth_stencil: depth_format.map(|_| wgpu::DepthStencilState {
                 format: texture::Texture::DEPTH_FORMAT,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,

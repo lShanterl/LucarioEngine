@@ -19,6 +19,9 @@ anyhow = "1.0"
 cgmath = "0.18"
 instant = "0.1.13"
 rand = "0.9.0-alpha.2"
+rayon = "1.10.0"
+flume = "0.11.1"
+noise = "0.9.0"
 
 [dependencies.image]
 version = "0.25.2"

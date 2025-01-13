@@ -5,6 +5,7 @@ use instant::Duration;
 use std::f32::consts::FRAC_PI_2;
 use wgpu::util::DeviceExt;
 use winit::keyboard::KeyCode;
+use crate::core::chunk::ChunkCoordinates;
 use crate::core::input::Input;
 use crate::core::wgpu_context::WgpuContext;
 
@@ -38,11 +39,9 @@ pub struct Camera {
     speed: f32,
     sensitivity: f32,
 
-    projection: Projection,
+    pub(crate) projection: Projection,
 }
 
-impl Camera {
-}
 
 pub struct Projection {
     aspect: f32,
@@ -74,6 +73,111 @@ impl Projection {
     pub fn calc_matrix(&self) -> Matrix4<f32> {
         OPENGL_TO_WGPU_MATRIX * perspective(self.fovy, self.aspect, self.znear, self.zfar)
     }
+}
+
+
+
+#[derive(Debug, Copy, Clone)]
+pub struct Plane {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+}
+impl Plane {
+    pub(crate) fn new(a: f32, b: f32, c: f32, d: f32) -> Self {
+        Self { a, b, c, d }
+    }
+
+    fn normalize(self) -> Self {
+        let length = (self.a * self.a + self.b * self.b + self.c * self.c).sqrt();
+        Self {
+            a: self.a / length,
+            b: self.b / length,
+            c: self.c / length,
+            d: self.d / length,
+        }
+    }
+}
+
+pub fn frustum_contains(frustum: &[Plane; 6], position: &ChunkCoordinates) -> bool {
+    let p1 = position.to_world_coordinates();
+    let mut edges = Vec::new();
+
+    edges.push(p1);
+    edges.push(p1 + Vector3::new(16.0, 0.0, 0.0));
+    edges.push(p1 + Vector3::new(0.0, 0.0, 16.0));
+    edges.push(p1 + Vector3::new(16.0, 0.0, 16.0));
+    edges.push(p1 + Vector3::new(0.0, 16.0, 0.0));
+    edges.push(p1 + Vector3::new(16.0, 16.0, 0.0));
+    edges.push(p1 + Vector3::new(0.0, 16.0, 16.0));
+    edges.push(p1 + Vector3::new(16.0, 16.0, 16.0));
+
+    'outer: for p in 0..edges.len() {
+        for i in 0..frustum.len() {
+            let dist =
+                frustum[i].a * edges[p].x
+                + frustum[i].b * edges[p].y
+                + frustum[i].c * edges[p].z
+                + frustum[i].d;
+            if dist < 0. {
+                continue 'outer;
+            }
+        }
+        return true;
+    }
+    false
+}
+
+pub fn extract_frustum_planes(view_proj: Matrix4<f32>) -> [Plane; 6] {
+    let m = view_proj;
+
+    let planes = [
+        // Left Plane
+        Plane::new(
+            m.x.w + m.x.x,
+            m.y.w + m.y.x,
+            m.z.w + m.z.x,
+            m.w.w + m.w.x,
+        ),
+        // Right Plane
+        Plane::new(
+            m.x.w - m.x.x,
+            m.y.w - m.y.x,
+            m.z.w - m.z.x,
+            m.w.w - m.w.x,
+        ),
+        // Bottom Plane
+        Plane::new(
+            m.x.w + m.x.y,
+            m.y.w + m.y.y,
+            m.z.w + m.z.y,
+            m.w.w + m.w.y,
+        ),
+        // Top Plane
+        Plane::new(
+            m.x.w - m.x.y,
+            m.y.w - m.y.y,
+            m.z.w - m.z.y,
+            m.w.w - m.w.y,
+        ),
+        // Near Plane
+        Plane::new(
+            m.x.w + m.x.z,
+            m.y.w + m.y.z,
+            m.z.w + m.z.z,
+            m.w.w + m.w.z,
+        ),
+        // Far Plane
+        Plane::new(
+            m.x.w - m.x.z,
+            m.y.w - m.y.z,
+            m.z.w - m.z.z,
+            m.w.w - m.w.z,
+        ),
+    ];
+
+    planes.map(|plane| plane.normalize())
 }
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
@@ -121,6 +225,7 @@ impl CameraUniform {
 }
 
 impl Camera {
+
     pub fn new<
         V: Into<Point3<f32>>,
     >
@@ -210,15 +315,15 @@ impl Camera {
         self.position += dir_right * input_right * speed;
         self.position += DIR_UP * input_up * speed * 2.0;
 
-        let temporary_lr = Self::get_input_dir(input, KeyCode::ArrowRight, KeyCode::ArrowLeft);
-        let temporary_td = Self::get_input_dir(input, KeyCode::ArrowDown, KeyCode::ArrowUp);
+        //let temporary_lr = Self::get_input_dir(input, KeyCode::ArrowRight, KeyCode::ArrowLeft);
+        //let temporary_td = Self::get_input_dir(input, KeyCode::ArrowDown, KeyCode::ArrowUp);
 
         // rotation
         if is_mouse_focused{
 
-            //let rotate_amount = input.mouse_delta_f32();
+            let rotate_amount = input.mouse_delta_f32();
 
-            let rotate_amount = Vector2::new(temporary_lr * 20.0, temporary_td * 20.0);
+            //let rotate_amount = Vector2::new(temporary_lr * 20.0, temporary_td * 20.0);
 
             self.yaw -= self.sensitivity * -rotate_amount.x;
             self.pitch -= self.sensitivity * rotate_amount.y;

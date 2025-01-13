@@ -3,6 +3,7 @@ use image::{DynamicImage, GenericImage, GenericImageView};
 use anyhow::*;
 use cgmath::num_traits::real::Real;
 
+#[derive(Debug)]
 pub struct Texture {
     #[allow(unused)]
     pub texture: wgpu::Texture,
@@ -10,6 +11,7 @@ pub struct Texture {
     pub sampler: wgpu::Sampler,
 }
 
+#[derive(Debug)]
 pub struct TextureCoordinates {
     #[allow(unused)]
     pub x0: u32,
@@ -168,7 +170,7 @@ impl Texture {
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
+                mag_filter: wgpu::FilterMode::Nearest,
                 min_filter: wgpu::FilterMode::Nearest,
                 mipmap_filter: wgpu::FilterMode::Nearest,
                 ..Default::default()

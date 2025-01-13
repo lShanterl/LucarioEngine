@@ -2,10 +2,11 @@ use std::sync::Arc;
 use futures::executor::block_on;
 use winit::{dpi::PhysicalSize, window::Window};
 use wgpu;
+use wgpu::core::device;
 use crate::renderer::camera::{Camera, CameraUniform};
 
 pub struct WgpuContext {
-    pub device: wgpu::Device,
+    pub device: Arc<wgpu::Device>,
     pub queue: wgpu::Queue,
     pub surface: wgpu::Surface<'static>,
     pub surface_config: wgpu::SurfaceConfiguration,
@@ -50,7 +51,7 @@ impl WgpuContext {
     }
 }
 
-fn init_wgpu(window: Arc<Window>) -> (wgpu::Device, wgpu::Queue, wgpu::Surface<'static>, wgpu::SurfaceConfiguration){
+fn init_wgpu(window: Arc<Window>) -> (Arc<wgpu::Device>, wgpu::Queue, wgpu::Surface<'static>, wgpu::SurfaceConfiguration){
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor{
         backends: wgpu::Backends::VULKAN, // need to specify the backend explicitly as of https://github.com/gfx-rs/wgpu/issues/3959
         ..Default::default()
@@ -87,13 +88,14 @@ fn init_wgpu(window: Arc<Window>) -> (wgpu::Device, wgpu::Queue, wgpu::Surface<'
         format: surface_formats,
         width: window.inner_size().width,
         height: window.inner_size().height,
-        present_mode: wgpu::PresentMode::Fifo,
+        present_mode: wgpu::PresentMode::Immediate,
         alpha_mode: surface_caps.alpha_modes[0],
         view_formats: vec![],
         desired_maximum_frame_latency: 2,
     };
 
     surface.configure(&device, &surface_config);
+    let device = Arc::new(device);
 
     (device, queue, surface, surface_config)
 }
