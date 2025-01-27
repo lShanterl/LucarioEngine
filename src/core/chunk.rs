@@ -21,9 +21,9 @@ impl ChunkCoordinates {
     
     pub(crate) fn to_world_coordinates(&self) -> cgmath::Vector3<f32> {
         cgmath::Vector3 {
-            x: self.x as f32 * 16.0,
-            y: self.y as f32 * 16.0,
-            z: self.z as f32 * 16.0,
+            x: self.x as f32 * 8.0,
+            y: self.y as f32 * 8.0,
+            z: self.z as f32 * 8.0,
         }
     }
 }
@@ -47,7 +47,6 @@ impl Chunk {
             }
         );
         
-        let position = ChunkCoordinates::new(position.x, 0, position.z);
 
         let mut chunk = Chunk {
             position,
@@ -55,7 +54,7 @@ impl Chunk {
             instance_buffer,
         };
 
-        chunk.generate_chunk(device, position.x, position.z, 16, perlin_noise);
+        chunk.generate_chunk(device, position.x, position.z, 8, perlin_noise);
 
         chunk
     }
@@ -83,8 +82,17 @@ impl Chunk {
                         cgmath::Vector3::unit_x(),
                         cgmath::Deg(180.0),
                     );
-
-                    Instance { position, rotation, texture_index: 0 }
+                    
+                    let texture_index = match y {
+                        0..=64 => 0,
+                        65..=80 => 1,
+                        81..=128 => 2,
+                        129..=192 => 3,
+                        193..=240 => 4,
+                        241..=255 => 5,
+                        _ => 0,
+                    };
+                    Instance::new(position, rotation, texture_index)
                 })
             })
         }).collect::<Vec<_>>();

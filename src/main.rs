@@ -234,7 +234,15 @@ pub async fn run() {
 
     let mut client = Client::new(window.clone()).await;
 
-    //let atlas = Texture::create_texture_atlas(&client.wgpu_context.device, &client.wgpu_context.queue, &[include_bytes!("./assets/textures/uv_map.jpg"),include_bytes!("./assets/textures/grid_01.png"), include_bytes!("./assets/textures/grid_02.png"), include_bytes!("./assets/textures/obama.png")], "egg_label").unwrap();
+    let atlas = Texture::create_texture_atlas(&client.wgpu_context.device, &client.wgpu_context.queue, &[
+        include_bytes!("./assets/textures/warped_trapdoor.png"),
+        include_bytes!("./assets/textures/water_overlay.png"),
+        include_bytes!("./assets/textures/sand.png"),
+        include_bytes!("./assets/textures/dirt.png"),
+        include_bytes!("./assets/textures/stone.png"),
+        include_bytes!("./assets/textures/snow.png")
+    ], "egg_label"
+    ).unwrap();
 
     //println!("{:?}", atlas.1);
 
@@ -246,7 +254,7 @@ pub async fn run() {
     let shader = client.wgpu_context.device.create_shader_module(wgpu::include_wgsl!("./shaders/test_shader.wgsl"));
     let light_shader = client.wgpu_context.device.create_shader_module(wgpu::include_wgsl!("./shaders/light.wgsl"));
     
-    let diff_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("../atlas.png"), "temporary.png").unwrap();
+    let diff_texture = texture::Texture::from_bytes(&client.wgpu_context.device, &client.wgpu_context.queue, include_bytes!("../atlas.png"), "atlas1.png").unwrap();
     let texture_bind_group_layout = client.graphics_resource_manager.create_bind_group_layout(
         &client.wgpu_context.device, 
         &[
@@ -453,6 +461,7 @@ pub async fn run() {
                             for (pos, mesh) in client.scene_manager.get_chunk_mut_array() {
                                 println!("{:?}", pos);
                             }
+                            println!("{:?}", client.scene_manager.get_chunk_array().len());
                             control_flow.exit();
                         }
                         _ => {}

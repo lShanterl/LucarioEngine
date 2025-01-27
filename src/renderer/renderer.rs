@@ -36,13 +36,41 @@ pub struct Instance{
     pub(crate) position: cgmath::Vector3<f32>,
     pub(crate) rotation: cgmath::Quaternion<f32>,
     pub(crate) texture_index: u32,
+    pub(crate) u_min: f32,
+    pub(crate) v_min: f32,
+    pub(crate) u_max: f32,
+    pub(crate) v_max: f32,
 }
 
 impl Instance {
+    pub(crate) fn new(position: cgmath::Vector3<f32>, rotation: cgmath::Quaternion<f32>, texture_index: u32) -> Self {
+
+        let cell_width = 1.0 / 6.0; 
+        let cell_height = 1.0;
+
+        let u_min = texture_index as f32 * cell_width; 
+        let v_min = 0.0;                               
+        let u_max = u_min + cell_width;
+        let v_max = v_min + cell_height;
+        Self {
+            position,
+            rotation,
+            texture_index,
+            u_min,
+            v_min,
+            u_max,
+            v_max,
+        }
+    }
+
     pub(crate) fn to_raw(&self) -> InstanceRaw {
         InstanceRaw {
             model: (cgmath::Matrix4::from_translation(self.position) * cgmath::Matrix4::from(self.rotation)).into(),
             texture_index: self.texture_index,
+            min_u: self.u_min,  // Assume these values exist in the original struct
+            min_v: self.v_min,  // Same for these
+            max_u: self.u_max,  // Same for these
+            max_v: self.v_max,  // Same for these
         }
     }
 }
@@ -54,6 +82,9 @@ pub struct State {
 
 impl State {
     pub(crate) fn map_to_closest_multiple_of(value: u32, multiple: u32) -> u32 {
+        if multiple == 0 {
+            return 0;
+        }
         
         let remainder = value % multiple;
         if remainder == 0 {
@@ -68,6 +99,11 @@ impl State {
             position,
             rotation: cgmath::Quaternion::zero(),
             texture_index: 0,
+            u_min: 0.0,
+            v_min: 0.0,
+            u_max: 1.0,
+            v_max: 1.0,
+
         };
 
         let instance_data = vec![instance.to_raw()];
@@ -166,7 +202,12 @@ impl State {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
     model: [[f32; 4]; 4],
-    pub texture_index: u32
+    pub texture_index: u32,
+    pub min_u: f32,
+    pub min_v: f32,
+    pub max_u: f32,
+    pub max_v: f32,
+
 }
 
 impl InstanceRaw {
@@ -174,39 +215,55 @@ impl InstanceRaw {
         use std::mem;
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            // We need to switch from using a step mode of Vertex to Instance
-            // This means that our shaders will only change to use the next
-            // instance when the shader starts processing a new instance
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
-                // A mat4 takes up 4 vertex slots as it is technically 4 vec4s. We need to define a slot
-                // for each vec4. We'll have to reassemble the mat4 in the shader.
+                // Model matrix 0 (vec4)
                 wgpu::VertexAttribute {
                     offset: 0,
-                    // While our vertex shader only uses locations 0, and 1 now, in later tutorials, we'll
-                    // be using 2, 3, and 4, for Vertex. We'll start at slot 5, not conflict with them later
                     shader_location: 5,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // Model matrix 1 (vec4)
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
                     shader_location: 6,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // Model matrix 2 (vec4)
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
                     shader_location: 7,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // Model matrix 3 (vec4)
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
                     shader_location: 8,
                     format: wgpu::VertexFormat::Float32x4,
                 },
+                // Minimum U coordinate (f32)
                 wgpu::VertexAttribute {
                     offset: mem::size_of::<[[f32; 4]; 4]>() as wgpu::BufferAddress,
                     shader_location: 9,
-                    format: wgpu::VertexFormat::Uint32,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Minimum V coordinate (f32)
+                wgpu::VertexAttribute {
+                    offset: (mem::size_of::<[[f32; 4]; 4]>() + mem::size_of::<f32>()) as wgpu::BufferAddress,
+                    shader_location: 10,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Maximum U coordinate (f32)
+                wgpu::VertexAttribute {
+                    offset: (mem::size_of::<[[f32; 4]; 4]>() + 2 * mem::size_of::<f32>()) as wgpu::BufferAddress,
+                    shader_location: 11,
+                    format: wgpu::VertexFormat::Float32,
+                },
+                // Maximum V coordinate (f32)
+                wgpu::VertexAttribute {
+                    offset: (mem::size_of::<[[f32; 4]; 4]>() + 3 * mem::size_of::<f32>()) as wgpu::BufferAddress,
+                    shader_location: 12,
+                    format: wgpu::VertexFormat::Float32,
                 },
             ],
         }

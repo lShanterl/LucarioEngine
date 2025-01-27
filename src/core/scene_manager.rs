@@ -4,7 +4,7 @@ use wgpu::naga::Block;
 use crate::core::chunk::{Chunk, ChunkCoordinates};
 use crate::object::{BlockTypes, Material, Mesh};
 
-pub(crate) const RENDER_DISTANCE : i32 = 32;
+pub(crate) const RENDER_DISTANCE : i32 = 64;
 
 #[derive(Debug)]
 pub struct SceneManager {
