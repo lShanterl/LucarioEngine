@@ -11,21 +11,18 @@ use crate::core::scene_manager;
 use crate::renderer::camera::{frustum_contains, Plane};
 use crate::renderer::renderer::Instance;
 
-// code derived from blatko's implementation
 pub struct ChunkGenerator {
     data_sender: flume::Sender<Arc<Chunk>>,
     data_receiver: flume::Receiver<Arc<Chunk>>,
 
     chunk_load_queue: Vec<ChunkCoordinates>,
-
-    pub chunk_rebuild_queue: Vec<ChunkCoordinates>,
+    chunk_rebuild_queue: Vec<ChunkCoordinates>,
 
     data_in_progress: Vec<ChunkCoordinates>,
-    perlin_noise: Arc<Fbm::<Perlin>>,
+    perlin_noise: Arc<Fbm<Perlin>>,
 }
 
 impl ChunkGenerator {
-
     fn get_spaced_chunk_position(&self, base_position: ChunkCoordinates) -> ChunkCoordinates {
         ChunkCoordinates::new(
             base_position.x / 8 * 8, // Ensure it's aligned to 8
@@ -33,14 +30,15 @@ impl ChunkGenerator {
             base_position.z / 8 * 8  // Ensure it's aligned to 8
         )
     }
+
     pub fn new() -> Self {
         let (data_sender, data_receiver) = flume::unbounded();
         let seed: u32 = rand::random();
         let perlin_noise = Arc::new(Fbm::<Perlin>::new(0)
-            .set_seed(seed + 10)         
-            .set_frequency(0.05)         
-            .set_octaves(4)              
-            .set_lacunarity(2.0)         
+            .set_seed(seed + 10)
+            .set_frequency(0.05)
+            .set_octaves(4)
+            .set_lacunarity(2.0)
             .set_persistence(0.4)
         );
 
@@ -61,19 +59,14 @@ impl ChunkGenerator {
         player_position: Vector3<f32>,
         pool: &uvth::ThreadPool,
         frustum: &[Plane; 6],
-    ){
+    ) {
         self.load_primary_chunks(device.clone(), scene_manager, player_position, pool);
-
         self.enqueue_chunks_in_frustum(player_position, scene_manager, frustum);
         self.process_chunk_loading_queue(device.clone(), scene_manager, pool);
         self.process_rebuild_queue(device.clone(), scene_manager, pool);
-
         self.update_scene(scene_manager);
-
         self.clean_up_queues();
         self.filter_unseen_chunks(player_position, scene_manager);
-
-
     }
 
     fn enqueue_chunks_in_frustum(&mut self, player_position: Vector3<f32>, scene_manager: &SceneManager, frustum: &[Plane; 6]) {
@@ -91,26 +84,26 @@ impl ChunkGenerator {
                     player_chunk_position.x + radius * chunk_size as i32,
                     0,
                     player_chunk_position.z + z * chunk_size as i32
-                ), &frustum);
+                ), frustum);
 
                 self.enqueue_data(scene_manager, ChunkCoordinates::new(
                     player_chunk_position.x - radius * chunk_size as i32,
                     0,
                     player_chunk_position.z + z * chunk_size as i32
-                ), &frustum);
+                ), frustum);
             }
             for x in (-radius + 1)..radius {
                 self.enqueue_data(scene_manager, ChunkCoordinates::new(
                     player_chunk_position.x + x * chunk_size as i32,
                     0,
                     player_chunk_position.z + radius * chunk_size as i32
-                ), &frustum);
+                ), frustum);
 
                 self.enqueue_data(scene_manager, ChunkCoordinates::new(
                     player_chunk_position.x + x * chunk_size as i32,
                     0,
                     player_chunk_position.z - radius * chunk_size as i32
-                ), &frustum);
+                ), frustum);
             }
         }
 
@@ -121,53 +114,31 @@ impl ChunkGenerator {
         self.chunk_load_queue.clear();
     }
 
-
     fn update_scene(&mut self, scene_manager: &mut SceneManager) {
         match self.data_receiver.try_recv() {
             Ok(chunk) => {
                 let position = chunk.position;
-                //println!(
-                //    "Loaded chunk at: x: {}, y: {}, z: {}",
-                //    position.x, position.y, position.z
-                //);
                 scene_manager.add_chunk(chunk);
                 self.data_in_progress.retain(|pos| *pos != position);
-
                 self.rebuild_adjacent_chunks(scene_manager, position);
             }
             Err(_) => {}
         }
-
     }
+
     fn rebuild_adjacent_chunks(&mut self, scene_manager: &mut SceneManager, pos: ChunkCoordinates) {
         if !scene_manager.get_chunk_array().is_empty() {
-            if scene_manager
-                .get_chunk_array()
-                .contains_key(&ChunkCoordinates::new(pos.x + 8, 0, pos.z))
-            {
-                self.chunk_rebuild_queue
-                    .push(ChunkCoordinates::new(pos.x + 8, 0, pos.z));
-            }
-            if scene_manager
-                .get_chunk_array()
-                .contains_key(&ChunkCoordinates::new(pos.x - 8, 0, pos.z))
-            {
-                self.chunk_rebuild_queue
-                    .push(ChunkCoordinates::new(pos.x - 8, 0, pos.z));
-            }
-            if scene_manager
-                .get_chunk_array()
-                .contains_key(&ChunkCoordinates::new(pos.x, 0, pos.z + 8))
-            {
-                self.chunk_rebuild_queue
-                    .push(ChunkCoordinates::new(pos.x, 0, pos.z + 8));
-            }
-            if scene_manager
-                .get_chunk_array()
-                .contains_key(&ChunkCoordinates::new(pos.x, 0, pos.z - 8))
-            {
-                self.chunk_rebuild_queue
-                    .push(ChunkCoordinates::new(pos.x, 0, pos.z - 8));
+            let adjacent_positions = [
+                ChunkCoordinates::new(pos.x + 8, 0, pos.z),
+                ChunkCoordinates::new(pos.x - 8, 0, pos.z),
+                ChunkCoordinates::new(pos.x, 0, pos.z + 8),
+                ChunkCoordinates::new(pos.x, 0, pos.z - 8),
+            ];
+
+            for adj_pos in adjacent_positions {
+                if scene_manager.get_chunk_array().contains_key(&adj_pos) {
+                    self.chunk_rebuild_queue.push(adj_pos);
+                }
             }
         }
     }
@@ -200,7 +171,6 @@ impl ChunkGenerator {
     ) {
         if !self.chunk_load_queue.is_empty() {
             let position = self.chunk_load_queue.remove(0);
-            let adjacent_chunks = self.adjacent_chunks(&position, scene_manager);
             let sender = self.data_sender.clone();
             let device = device.clone();
             let perlin_noise = self.perlin_noise.clone();
@@ -288,11 +258,9 @@ impl ChunkGenerator {
         self.chunk_load_queue.clear();
         self.chunk_rebuild_queue.sort();
         self.chunk_rebuild_queue.dedup();
-
     }
 
     fn enqueue_data(&mut self, scene_manager: &SceneManager, position: ChunkCoordinates, frustum: &[Plane; 6]) {
-        // Get the correctly spaced chunk position
         let spaced_position = self.get_spaced_chunk_position(position);
 
         if !self.is_chunk_loaded(scene_manager, spaced_position) {
@@ -302,7 +270,6 @@ impl ChunkGenerator {
         }
     }
 
-    // Ensure chunks are aligned correctly in the 8x8 grid
     fn is_chunk_loaded(&self, scene_manager: &SceneManager, position: ChunkCoordinates) -> bool {
         let spaced_position = self.get_spaced_chunk_position(position);
 
@@ -349,44 +316,24 @@ impl ChunkGenerator {
                 self.chunk_rebuild_queue.remove(i);
             }
         }
-
     }
 
     fn adjacent_chunks(&mut self, pos: &ChunkCoordinates, scene_manager: &SceneManager) -> Vec<Option<Arc<Chunk>>> {
         let mut adjacent_chunks = Vec::new();
-        if let Some(c) = scene_manager
-            .get_chunk_array()
-            .get(&ChunkCoordinates::new(pos.x - 8, pos.y, pos.z))
-        {
-            adjacent_chunks.push(Some(c.clone()));
-        } else {
-            adjacent_chunks.push(None);
-        }
-        if let Some(c) = scene_manager
-            .get_chunk_array()
-            .get(&ChunkCoordinates::new(pos.x + 8, pos.y, pos.z))
-        {
-            adjacent_chunks.push(Some(c.clone()));
-        } else {
-            adjacent_chunks.push(None);
-        }
-        if let Some(c) = scene_manager
-            .get_chunk_array()
-            .get(&ChunkCoordinates::new(pos.x, pos.y, pos.z - 8))
-        {
-            adjacent_chunks.push(Some(c.clone()));
-        } else {
-            adjacent_chunks.push(None);
-        }
-        if let Some(c) = scene_manager
-            .get_chunk_array()
-            .get(&ChunkCoordinates::new(pos.x, pos.y, pos.z + 8))
-        {
-            adjacent_chunks.push(Some(c.clone()));
-        } else {
-            adjacent_chunks.push(None);
+        let adjacent_positions = [
+            ChunkCoordinates::new(pos.x - 8, pos.y, pos.z),
+            ChunkCoordinates::new(pos.x + 8, pos.y, pos.z),
+            ChunkCoordinates::new(pos.x, pos.y, pos.z - 8),
+            ChunkCoordinates::new(pos.x, pos.y, pos.z + 8),
+        ];
+
+        for adj_pos in adjacent_positions {
+            if let Some(c) = scene_manager.get_chunk_array().get(&adj_pos) {
+                adjacent_chunks.push(Some(c.clone()));
+            } else {
+                adjacent_chunks.push(None);
+            }
         }
         adjacent_chunks
     }
-
 }
