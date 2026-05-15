@@ -108,9 +108,6 @@ pub struct Material {
     pub bind_group: wgpu::BindGroup,
 }
 
-// create an enum of materials
-// create a hashmap of materials
-
 pub enum BlockTypes{
     Grass,
     Dirt,
@@ -161,7 +158,7 @@ impl Mesh{
             num_indices,
         }
     }
-    
+
     pub fn new_cube_at(device: &wgpu::Device, position: [f32; 3], color: [f32; 3]) -> Self{
         let vertex_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -194,5 +191,5 @@ impl Mesh{
 pub(crate) struct CubeMesh{
     pub(crate) position: [f32; 3],
     pub(crate) color: [f32; 3],
-    
+
 }

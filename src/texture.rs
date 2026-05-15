@@ -28,50 +28,112 @@ impl Texture {
     fn next_power_of_two(value: u32) -> u32{
         2u32.pow((value as f32).log2().ceil() as u32)
     }
-    
-    pub fn create_texture_atlas(device: &wgpu::Device, queue: &wgpu::Queue, textures: &[&[u8]], label: &str) -> Result<(Self,Vec<TextureCoordinates> )> {
 
-        let mut textures = textures.iter().map(|path| {
-            let img = image::load_from_memory(path)?;
-            Ok(img)
-        }).collect::<Result<Vec<_>>>()?;
+    pub fn create_texture_atlas(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        textures_bytes: &[&[u8]],
+        label: &str,
+    ) -> Result<(Self, Vec<TextureCoordinates>)> {
+        let textures = textures_bytes
+            .iter()
+            .map(|b| image::load_from_memory(b).map_err(|e| anyhow!(e)))
+            .collect::<Result<Vec<_>>>()?;
 
-        textures.sort_by(|img1,img2|{
-            return img2.height().cmp(&img1.height());
+        let tile_size: u32 = 16;
+        let gutter: u32   = 16; // must equal tile_size for mip halving to work
+        let n = textures.len() as u32;
+        let mip_count = (tile_size as f32).log2() as u32 + 1; // log2(16)+1 = 5
+
+        let base_width  = n * (tile_size + gutter);
+        let base_height = tile_size;
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: base_width, height: base_height, depth_or_array_layers: 1 },
+            mip_level_count: mip_count,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
 
-        let sizes = textures.iter().map(|path| {(path.height(), path.width())}).collect::<Vec<_>>();
+        for m in 0..mip_count {
+            let t = (tile_size >> m).max(1);   // tile pixels at this mip
+            let g = (gutter   >> m).max(1);   // gutter pixels at this mip
+            let mip_w = n * (t + g);
+            let mip_h = t;
 
-        let max_height = sizes[0].0;
-        let max_width = sizes.iter().map(|size| size.1).sum();
-        
-        //let final_height = Texture::next_power_of_two(max_height);
-        //let final_width = Texture::next_power_of_two(max_width);
-        
+            let mut atlas = image::RgbaImage::new(mip_w, mip_h);
 
-        
-        let mut atlas = image::DynamicImage::ImageRgba8(image::RgbaImage::new(max_width, max_height));
-        
-        let mut x = 0;
-        let mut y = 0;
-        let mut texture_coordinates = Vec::new();
-        
-        for img in textures.iter(){
-            let size = img.dimensions();
-            let x1 = x + size.0;
-            let y1 = y + size.1;
-            let coordinates = TextureCoordinates{x0: x, x1, y0: y, y1};
-            texture_coordinates.push(coordinates);
-            atlas.copy_from(img, x, y).expect("failed to copy image");
-            x = x1;
+            for (i, img) in textures.iter().enumerate() {
+                // resize tile to this mip level using nearest (preserves pixel-art look)
+                let resized = img.resize_exact(t, t, image::imageops::FilterType::Nearest);
+                let x_off = i as u32 * (t + g);
+
+                // copy tile pixels
+                for py in 0..t {
+                    for px in 0..t {
+                        atlas.put_pixel(x_off + px, py, resized.get_pixel(px, py));
+                    }
+                }
+                // extrude right edge into right gutter
+                for gi in 0..g {
+                    for py in 0..t {
+                        atlas.put_pixel(x_off + t + gi, py, resized.get_pixel(t - 1, py));
+                    }
+                }
+                // extrude left edge into left gutter of previous slot (safe because
+                // the previous tile's right gutter is our left neighbor)
+                if x_off > 0 {
+                    for gi in 0..g {
+                        for py in 0..t {
+                            atlas.put_pixel(x_off - 1 - gi, py, resized.get_pixel(0, py));
+                        }
+                    }
+                }
+            }
+
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: m,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                atlas.as_raw(),
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * mip_w),
+                    rows_per_image: Some(mip_h),
+                },
+                wgpu::Extent3d { width: mip_w, height: mip_h, depth_or_array_layers: 1 },
+            );
         }
 
-        let texture = Self::from_image(device, queue, &atlas, Some(label))?;
-        
-        //save the texture to disk
-        atlas.save("atlas.png")?;
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,  // crisp up-close
+            min_filter: wgpu::FilterMode::Nearest,  // crisp at distance
+            mipmap_filter: wgpu::FilterMode::Linear, // smooth mip transitions
+            ..Default::default()
+        });
 
-        Ok((texture, texture_coordinates))
+        let coords = textures
+            .iter()
+            .enumerate()
+            .map(|(i, _)| TextureCoordinates {
+                x0: i as u32 * (tile_size + gutter),
+                x1: i as u32 * (tile_size + gutter) + tile_size,
+                y0: 0,
+                y1: tile_size,
+            })
+            .collect();
+
+        Ok((Self { texture, view, sampler }, coords))
     }
     pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
         let size = wgpu::Extent3d {
@@ -129,6 +191,7 @@ impl Texture {
     ) -> Result<Self> {
         let rgba = img.to_rgba8();
         let dimensions = img.dimensions();
+        let mip_level_count = (dimensions.0.max(dimensions.1) as f32).log2().floor() as u32 + 1;
 
         let size = wgpu::Extent3d {
             width: dimensions.0,
@@ -139,40 +202,53 @@ impl Texture {
             &wgpu::TextureDescriptor {
                 label,
                 size,
-                mip_level_count: 1,
+                mip_level_count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             }
         );
 
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                aspect: wgpu::TextureAspect::All,
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-            },
-            &rgba,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * dimensions.0),
-                rows_per_image: Some(dimensions.1),
-            },
-            size,
-        );
+        for m in 0..mip_level_count {
+            let mip_size = wgpu::Extent3d {
+                width: (dimensions.0 >> m).max(1),
+                height: (dimensions.1 >> m).max(1),
+                depth_or_array_layers: 1,
+            };
+
+            let resized = img.resize(mip_size.width, mip_size.height, image::imageops::FilterType::Gaussian);
+            let rgba_mip = resized.to_rgba8();
+
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: m,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &rgba_mip,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * mip_size.width),
+                    rows_per_image: Some(mip_size.height),
+                },
+                mip_size,
+            );
+        }
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(
             &wgpu::SamplerDescriptor {
                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                 address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Nearest,
                 min_filter: wgpu::FilterMode::Nearest,
                 mipmap_filter: wgpu::FilterMode::Nearest,
+                anisotropy_clamp: 1,
                 ..Default::default()
             }
         );
