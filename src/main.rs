@@ -1,5 +1,4 @@
 mod core;
-mod object;
 mod renderer;
 mod texture;
 mod utils;

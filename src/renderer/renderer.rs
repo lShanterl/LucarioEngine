@@ -1,7 +1,6 @@
 use crate::core::graphics_resource_manager::{BindGroupHandle, GraphicsResourceManager, PipelineHandle};
 use crate::core::scene_manager::SceneManager;
 use crate::core::wgpu_context::WgpuContext;
-use crate::object::Mesh;
 use crate::texture::Texture;
 use crate::core::chunk::CHUNK_SIZE;
 use crate::core::chunk::BLOCK_WIDTH;
@@ -21,6 +20,8 @@ pub struct Instance {
     pub position: cgmath::Vector3<f32>,
     pub rotation: cgmath::Quaternion<f32>,
     pub uv_range: [f32; 4],
+    pub width:    f32,
+    pub height:   f32,
 }
 
 impl Instance {
@@ -28,39 +29,56 @@ impl Instance {
         position: cgmath::Vector3<f32>,
         rotation: cgmath::Quaternion<f32>,
         uv_range: [f32; 4],
+        width: f32,
+        height: f32,
     ) -> Self {
-        Self { position, rotation, uv_range }
+        Self { position, rotation, uv_range, width, height }
     }
 
     pub fn to_raw(&self) -> InstanceRaw {
+        let scale_mat = cgmath::Matrix4::from_nonuniform_scale(
+            self.width * crate::core::chunk::BLOCK_WIDTH,
+            self.height * crate::core::chunk::BLOCK_WIDTH,
+            1.0
+        );
+
         let model = (cgmath::Matrix4::from_translation(self.position)
-            * cgmath::Matrix4::from(self.rotation))
+            * cgmath::Matrix4::from(self.rotation)
+            * scale_mat)
             .into();
-        InstanceRaw { model, uv_range: self.uv_range }
+
+        InstanceRaw {
+            model,
+            uv_range: self.uv_range,
+            scale: [self.width, self.height],
+            _padding: [0.0; 2],
+        }
     }
 }
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct InstanceRaw {
-    pub model:    [[f32; 4]; 4],
+    pub model: [[f32; 4]; 4],
     pub uv_range: [f32; 4],
+    pub scale: [f32; 2], // [width, height]
+    pub _padding: [f32; 2],
 }
-
 impl InstanceRaw {
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         use std::mem;
         wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            step_mode:    wgpu::VertexStepMode::Instance,
+            step_mode: wgpu::VertexStepMode::Instance,
             attributes: &[
-                // Mat4 occupies locations 5–8
-                wgpu::VertexAttribute { offset:  0, shader_location: 5, format: wgpu::VertexFormat::Float32x4 },
+                //mat 4
+                wgpu::VertexAttribute { offset: 0,  shader_location: 5, format: wgpu::VertexFormat::Float32x4 },
                 wgpu::VertexAttribute { offset: 16, shader_location: 6, format: wgpu::VertexFormat::Float32x4 },
                 wgpu::VertexAttribute { offset: 32, shader_location: 7, format: wgpu::VertexFormat::Float32x4 },
                 wgpu::VertexAttribute { offset: 48, shader_location: 8, format: wgpu::VertexFormat::Float32x4 },
-                // uv_range at location 9
                 wgpu::VertexAttribute { offset: 64, shader_location: 9, format: wgpu::VertexFormat::Float32x4 },
+                // scale at location 10
+                wgpu::VertexAttribute { offset: 80, shader_location: 10, format: wgpu::VertexFormat::Float32x2 },
             ],
         }
     }
@@ -84,7 +102,7 @@ impl Renderer {
         wgpu_context:              &WgpuContext,
         render_ctx:                &RenderContext,
         graphics_resource_manager: &GraphicsResourceManager,
-        mesh:                      &Mesh,
+        // mesh is no longer needed for chunks because chunks are their own mesh now
         depth_texture:             &Texture,
         scene_manager:             &SceneManager,
     ) -> Result<(), wgpu::SurfaceError> {
@@ -131,11 +149,14 @@ impl Renderer {
                 );
             }
 
+            // instead of instancing, now we use normal vertices  (greedy meshing)
             for (_, chunk) in scene_manager.get_chunk_array() {
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_vertex_buffer(1, chunk.instance_buffer.slice(..));
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..mesh.num_indices, 0, 0..chunk.instances.len() as _);
+                // each chunk now provides its own geometry
+                pass.set_vertex_buffer(0, chunk.vertex_buffer.slice(..));
+                pass.set_index_buffer(chunk.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+                // draw all the greedy quads in one call
+                pass.draw_indexed(0..chunk.index_count, 0, 0..1);
             }
         }
 

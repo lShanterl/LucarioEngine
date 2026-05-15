@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use cgmath::Vector3;
 use wgpu::Device;
-use crate::core::chunk::{Chunk, ChunkCoordinates, TerrainNoise, CHUNK_SIZE};
+use crate::core::chunk::{Chunk, ChunkCoordinates, MeshData, TerrainNoise, CHUNK_SIZE};
 use crate::core::scene_manager::{self, SceneManager};
 use crate::renderer::camera::{frustum_contains, Plane};
 
@@ -13,8 +13,8 @@ const FRUSTUM_RADIUS:        i32   = 16;
 
 
 pub struct ChunkGenerator {
-    data_sender:         flume::Sender<Arc<Chunk>>,
-    data_receiver:       flume::Receiver<Arc<Chunk>>,
+    data_sender:         flume::Sender<(ChunkCoordinates, MeshData)>,
+    data_receiver:       flume::Receiver<(ChunkCoordinates, MeshData)>,
     chunk_load_queue:    Vec<ChunkCoordinates>,
     chunk_rebuild_queue: Vec<ChunkCoordinates>,
     data_in_progress:    Vec<ChunkCoordinates>,
@@ -23,12 +23,13 @@ pub struct ChunkGenerator {
 
 impl ChunkGenerator {
     pub fn new() -> Self {
-        let (data_sender, data_receiver) = flume::unbounded();
+        let (data_sender, data_receiver) = flume::unbounded::<(ChunkCoordinates, MeshData)>();
         let seed: u32 = rand::random();
         let terrain_noise = Arc::new(TerrainNoise::new(seed));
 
         Self {
-            data_sender, data_receiver,
+            data_sender,
+            data_receiver,
             chunk_load_queue: Vec::new(),
             chunk_rebuild_queue: Vec::new(),
             data_in_progress: Vec::new(),
@@ -44,7 +45,7 @@ impl ChunkGenerator {
         pool:          &uvth::ThreadPool,
         frustum:       &[Plane; 6],
     ) {
-        self.receive_finished(scene_manager);
+        self.receive_finished(&device.clone(), scene_manager);
         self.enqueue_primary(device.clone(), scene_manager, player_pos, pool);
         self.enqueue_frustum(player_pos, scene_manager, frustum);
         self.dispatch_loads(device.clone(), pool, player_pos);
@@ -53,11 +54,18 @@ impl ChunkGenerator {
     }
 
 
-    fn receive_finished(&mut self, scene_manager: &mut SceneManager) {
-        while let Ok(chunk) = self.data_receiver.try_recv() {
-            let pos = chunk.position;
-            scene_manager.add_chunk(chunk);
+    fn receive_finished(&mut self, device: &wgpu::Device, scene_manager: &mut SceneManager) {
+        let mut uploads_this_frame = 0;
+
+        while let Ok((pos, mesh_data)) = self.data_receiver.try_recv() {
+            let chunk = Chunk::from_data(device, pos, mesh_data);
+
+            scene_manager.add_chunk(Arc::new(chunk));
+
             self.data_in_progress.retain(|p| *p != pos);
+
+            uploads_this_frame += 1;
+            if uploads_this_frame >= MAX_LOADS_PER_FRAME { break; }
         }
     }
 
@@ -158,13 +166,16 @@ impl ChunkGenerator {
         }
     }
 
-    fn spawn(&mut self, pos: ChunkCoordinates, device: Arc<Device>, pool: &uvth::ThreadPool) {
+    fn spawn(&mut self, pos: ChunkCoordinates, _device: Arc<Device>, pool: &uvth::ThreadPool) {
         if self.data_in_progress.contains(&pos) { return; }
+
         let sender = self.data_sender.clone();
         let noise  = self.terrain_noise.clone();
+
+        // not passing the device, no gpu only cpu
         pool.execute(move || {
-            let chunk = Chunk::new(&device, pos, &noise);
-            let _ = sender.send(Arc::new(chunk));
+            let mesh_data = Chunk::build_mesh_data(&noise, pos);
+            let _ = sender.send((pos, mesh_data));
         });
         self.data_in_progress.push(pos);
     }

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use crate::core::chunk::{Chunk, ChunkCoordinates, CHUNK_SIZE, BLOCK_WIDTH};
-use crate::object::{Material, Mesh};
 use crate::renderer::renderer::BASE_LEVEL;
+use crate::texture::Material;
 
 pub const RENDER_DISTANCE: i32 = 16; // in chunk units
 #[derive(Debug)]
@@ -59,27 +59,15 @@ impl SceneManager {
     }
     pub fn get_scene(&self)         -> &Scene      { &self.scene }
     pub fn get_scene_mut(&mut self) -> &mut Scene  { &mut self.scene }
-
-    pub fn add_mesh(&mut self, mesh: Mesh) -> u32 {
-        let id = self.scene.meshes.len() as u32;
-        self.scene.meshes.insert(id, mesh);
-        id
-    }
-    pub fn get_mesh(&self, id: u32)         -> &Mesh      { self.scene.meshes.get(&id).unwrap() }
-    pub fn get_mesh_mut(&mut self, id: u32) -> &mut Mesh  { self.scene.meshes.get_mut(&id).unwrap() }
-    pub fn remove_mesh(&mut self, id: u32)               { self.scene.meshes.remove(&id); }
-    pub fn clear_scene(&mut self)                         { self.scene.meshes.clear(); }
-    pub fn iter(&self) -> std::collections::hash_map::Iter<u32, Mesh> { self.scene.meshes.iter() }
 }
 
 #[derive(Debug)]
 pub struct Scene {
-    pub meshes: HashMap<u32, Mesh>,
     pub chunks: HashMap<ChunkCoordinates, Arc<Chunk>>,
 }
 
 impl Scene {
     pub fn new() -> Self {
-        Self { meshes: HashMap::new(), chunks: HashMap::new() }
+        Self { chunks: HashMap::new() }
     }
 }

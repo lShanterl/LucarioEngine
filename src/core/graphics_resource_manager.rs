@@ -1,14 +1,9 @@
 use std::collections::HashMap;
 
 use wgpu::BindGroupEntry;
-
-use crate::object::Vertex;
+use crate::core::chunk::TerrainVertex;
 use crate::renderer::renderer::{InstanceRaw, RenderContext};
 use crate::texture::{self, Texture};
-
-// ── Typed handles ─────────────────────────────────────────────────────────────
-// Newtype wrappers around u32 give us compile-time safety: you can't
-// accidentally pass a PipelineHandle where a BindGroupHandle is expected.
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct BindGroupHandle(u32);
@@ -176,7 +171,7 @@ impl GraphicsResourceManager {
             vertex: wgpu::VertexState {
                 module:               shader,
                 entry_point:          "vs_main",
-                buffers:              &[Vertex::desc(), InstanceRaw::desc()],
+                buffers:              &[TerrainVertex::desc()],
                 compilation_options:  Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -196,7 +191,7 @@ impl GraphicsResourceManager {
                 topology:           wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face:         wgpu::FrontFace::Ccw,
-                cull_mode:          Some(wgpu::Face::Back),
+                cull_mode:          None,
                 polygon_mode:       wgpu::PolygonMode::Fill,
                 unclipped_depth:    false,
                 conservative:       false,

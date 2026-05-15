@@ -21,6 +21,13 @@ pub struct TextureCoordinates {
     pub y1: u32,
 }
 
+#[derive(Debug)]
+pub struct Material {
+    pub name: String,
+    pub diffuse_texture: Texture,
+    pub bind_group: wgpu::BindGroup,
+}
+
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;

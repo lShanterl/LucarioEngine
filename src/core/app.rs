@@ -16,7 +16,6 @@ use crate::core::{
 };
 use crate::core::fog::FogGpu;
 use crate::core::light::LightGpu;
-use crate::object::Mesh;
 use crate::renderer::{
     camera::{Camera, extract_frustum_planes},
     renderer::{RenderContext, Renderer},
@@ -47,7 +46,6 @@ pub struct App {
 
     // Render resources
     main_render_ctx: RenderContext,
-    cube_mesh_id:    u32,
     depth_texture:   Texture,
 
     // Runtime flags
@@ -92,10 +90,11 @@ impl App {
                 include_bytes!("../assets/textures/snow.png"),
             ],
             "atlas",
-        )
-            .expect("Failed to create texture atlas");
+        ).expect("Failed to create texture atlas");
 
-        // Shader
+        println!("{:?}",atlas.texture.size());
+
+
         let shader = wgpu.device.create_shader_module(
             wgpu::include_wgsl!("../shaders/test_shader.wgsl"),
         );
@@ -162,9 +161,6 @@ impl App {
 
         // initial scene geometry
         let mut scene = SceneManager::new();
-        let cube_mesh_id = scene.add_mesh(Mesh::new_cube_at(
-            &wgpu.device, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-        ));
 
         let pool = uvth::ThreadPoolBuilder::new()
             .name("chunk_pool".parse().unwrap())
@@ -183,7 +179,6 @@ impl App {
             chunks: ChunkGenerator::new(),
             pool,
             main_render_ctx,
-            cube_mesh_id,
             depth_texture,
             input: Input::new(),
             is_mouse_focused: false,
@@ -233,12 +228,10 @@ impl App {
     }
 
     pub fn render(&self) -> Result<(), wgpu::SurfaceError> {
-        let mesh = self.scene.get_mesh(self.cube_mesh_id);
         self.renderer.render_chunks(
             &self.wgpu,
             &self.main_render_ctx,
             &self.grm,
-            mesh,
             &self.depth_texture,
             &self.scene,
         )
